@@ -1,0 +1,657 @@
+﻿generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  GUEST
+  DECEASED
+}
+
+enum RelationshipType {
+  SPOUSE
+  PARENT
+  CHILD
+  SIBLING
+  GUARDIAN
+  OTHER
+}
+
+enum GroupType {
+  SUNDAY_SCHOOL
+  SMALL_GROUP
+  MINISTRY
+  VOLUNTEER_TEAM
+  CARE_TEAM
+  YOUTH_GROUP
+  CLASS
+}
+
+enum GroupVisibility {
+  PRIVATE
+  CHURCH
+}
+
+enum GroupMemberRole {
+  MEMBER
+  LEADER
+  ASSISTANT
+}
+
+enum CalendarVisibility {
+  INTERNAL
+  PUBLIC
+}
+
+enum CalendarRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum CalendarEventType {
+  MEETING
+  SERVICE
+  REHEARSAL
+  APPOINTMENT
+  ABSENCE
+  VACATION
+  OFFICE
+  MINISTRY_EVENT
+  PUBLIC_EVENT
+  OTHER
+}
+
+enum EventType {
+  SERVICE
+  GROUP_MEETING
+  TEAM_MEETING
+  SPECIAL_EVENT
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  GUEST
+}
+
+enum PrayerRequestStatus {
+  OPEN
+  IN_PROGRESS
+  ANSWERED
+  CLOSED
+}
+
+enum VisitType {
+  HOSPITAL
+  HOME
+  PHONE
+  COUNSELING
+  OUTREACH
+  OTHER
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+  CANCELED
+}
+
+enum TaskType {
+  GUEST_FOLLOWUP
+  PASTORAL_CHECKIN
+  PRAYER_FOLLOWUP
+  VISIT_FOLLOWUP
+  ADMIN_DOCUMENT
+}
+
+enum CampaignType {
+  ANNOUNCEMENT
+  PRAYER_UPDATE
+  BIRTHDAY
+  MANUAL_BULK
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  UNDELIVERED
+  OPTED_OUT
+}
+
+enum FeedPostType {
+  TEXT
+  PHOTO
+  VIDEO
+  ANNOUNCEMENT
+  PRAYER_REQUEST
+}
+
+enum FeedReactionType {
+  LIKE
+  PRAY
+  AMEN
+  LOVE
+}
+
+enum SocialPlatform {
+  FACEBOOK_PAGE
+  FACEBOOK_GROUP
+  INSTAGRAM
+  X
+  YOUTUBE
+  TIKTOK
+}
+
+enum SocialPostType {
+  FEED_POST
+  STORY
+  SHORT_VIDEO
+}
+
+enum SocialPostStatus {
+  DRAFT
+  READY
+  SCHEDULED
+  POSTED
+  FAILED
+}
+
+enum ContentAssetType {
+  DAILY_IMAGE
+  DAILY_REEL
+  DEVOTIONAL_SCRIPT
+  DEVOTIONAL_AUDIO
+  DEVOTIONAL_VIDEO
+}
+
+model Church {
+  id                String            @id @default(cuid())
+  name              String
+  slug              String            @unique
+  timezone          String            @default("America/Chicago")
+  twilioPhoneNumber String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  users             User[]
+  roles             Role[]
+  households        Household[]
+  members           Member[]
+  groups            Group[]
+  calendars         Calendar[]
+  events            Event[]
+  attendanceRecords AttendanceRecord[]
+  calendarEvents    CalendarEvent[]
+  prayerRequests    PrayerRequest[]
+  followUpTasks     FollowUpTask[]
+  visits            Visit[]
+  campaigns         MessageCampaign[]
+  templates         MessageTemplate[]
+  documentTemplates DocumentTemplate[]
+  documentRequests  DocumentRequest[]
+  socialAccounts    SocialAccount[]
+  socialPosts       SocialPost[]
+  contentAssets     ContentAsset[]
+}
+
+model User {
+  id                   String              @id @default(cuid())
+  churchId             String
+  name                 String
+  email                String              @unique
+  phone                String?
+  passwordHash         String
+  status               UserStatus          @default(ACTIVE)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  church               Church              @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  userRoles            UserRole[]
+  ledGroups            Group[]             @relation("GroupLeader")
+  ownedCalendars       Calendar[]          @relation("CalendarOwner")
+  calendarMemberships  CalendarMember[]
+  createdCalendarEvents CalendarEvent[]    @relation("CalendarEventCreator")
+}
+
+model Role {
+  id          String     @id @default(cuid())
+  churchId    String
+  name        String
+  description String?
+  church      Church     @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  userRoles   UserRole[]
+
+  @@unique([churchId, name])
+}
+
+model UserRole {
+  id     String @id @default(cuid())
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+}
+
+model Household {
+  id           String   @id @default(cuid())
+  churchId     String
+  name         String
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  church       Church   @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  members      Member[]
+}
+
+model Member {
+  id            String               @id @default(cuid())
+  churchId      String
+  householdId   String?
+  firstName     String
+  lastName      String
+  preferredName String?
+  birthdate     DateTime?
+  phoneMobile   String?
+  email         String?
+  status        MemberStatus         @default(ACTIVE)
+  isSmsOptedOut Boolean              @default(false)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  church        Church               @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  household     Household?           @relation(fields: [householdId], references: [id], onDelete: SetNull)
+  relationships MemberRelationship[] @relation("MemberRelationships")
+  relatedTo     MemberRelationship[] @relation("RelatedMemberRelationships")
+  groupLinks    GroupMember[]
+  attendance    AttendanceRecord[]
+  prayers       PrayerRequest[]
+  tasks         FollowUpTask[]
+  visits        Visit[]
+  posts         GroupPost[]
+  comments      GroupComment[]
+  reactions     GroupReaction[]
+  recipients    MessageRecipient[]
+  documents     DocumentRequest[]
+
+  @@index([churchId, lastName, firstName])
+  @@index([churchId, birthdate])
+}
+
+
+
+model MessageCampaign {
+  id           String         @id @default(cuid())
+  churchId     String
+  title        String
+  body         String
+  campaignType CampaignType
+  status       CampaignStatus @default(DRAFT)
+  scheduledFor DateTime?
+  sentAt       DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  church       Church         @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  recipients   MessageRecipient[]
+}
+
+model MessageRecipient {
+  id               String          @id @default(cuid())
+  campaignId       String
+  memberId         String?
+  phoneNumber      String
+  deliveryStatus   DeliveryStatus  @default(QUEUED)
+  twilioMessageSid String?
+  errorCode        String?
+  errorMessage     String?
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  campaign         MessageCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  member           Member?         @relation(fields: [memberId], references: [id], onDelete: SetNull)
+}
+
+model MessageTemplate {
+  id        String   @id @default(cuid())
+  churchId  String
+  name      String
+  body      String
+  createdAt DateTime @default(now())
+  church    Church   @relation(fields: [churchId], references: [id], onDelete: Cascade)
+}
+
+model DocumentTemplate {
+  id         String   @id @default(cuid())
+  churchId   String
+  name       String
+  category   String
+  prompt     String
+  outputType String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  church     Church   @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  requests   DocumentRequest[]
+}
+
+model DocumentRequest {
+  id                String            @id @default(cuid())
+  churchId          String
+  templateId        String?
+  memberId          String?
+  requestedByUserId String?
+  title             String
+  inputJson         String?
+  generatedBody     String?
+  outputFileUrl     String?
+  status            String            @default("draft")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  church            Church            @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  template          DocumentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  member            Member?           @relation(fields: [memberId], references: [id], onDelete: SetNull)
+}
+model Event {
+  id              String          @id @default(cuid())
+  churchId        String
+  groupId         String?
+  name            String
+  eventType       EventType
+  startsAt        DateTime
+  location        String?
+  createdAt       DateTime        @default(now())
+  church          Church          @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  group           Group?          @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  attendance      AttendanceRecord[]
+  calendarEntries CalendarEvent[]
+}
+
+model AttendanceRecord {
+  id         String           @id @default(cuid())
+  churchId   String
+  eventId    String
+  memberId   String
+  status     AttendanceStatus @default(PRESENT)
+  recordedAt DateTime         @default(now())
+  church     Church           @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  event      Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  member     Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, memberId])
+}
+
+model PrayerRequest {
+  id            String              @id @default(cuid())
+  churchId      String
+  memberId      String?
+  title         String
+  details       String
+  status        PrayerRequestStatus @default(OPEN)
+  followUpDueAt DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  church        Church              @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  member        Member?             @relation(fields: [memberId], references: [id], onDelete: SetNull)
+}
+
+model FollowUpTask {
+  id          String     @id @default(cuid())
+  churchId    String
+  memberId    String?
+  title       String
+  description String?
+  taskType    TaskType
+  status      TaskStatus @default(OPEN)
+  dueAt       DateTime
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  church      Church     @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  member      Member?    @relation(fields: [memberId], references: [id], onDelete: SetNull)
+}
+
+model Visit {
+  id        String    @id @default(cuid())
+  churchId  String
+  memberId  String
+  visitType VisitType
+  visitedAt DateTime
+  summary   String
+  nextStep  String?
+  createdAt DateTime  @default(now())
+  church    Church    @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+model MemberRelationship {
+  id              String           @id @default(cuid())
+  memberId        String
+  relatedMemberId String
+  relationship    RelationshipType
+  createdAt       DateTime         @default(now())
+  member          Member           @relation("MemberRelationships", fields: [memberId], references: [id], onDelete: Cascade)
+  relatedMember   Member           @relation("RelatedMemberRelationships", fields: [relatedMemberId], references: [id], onDelete: Cascade)
+}
+
+model Group {
+  id           String          @id @default(cuid())
+  churchId     String
+  leaderUserId String?
+  name         String
+  description  String?
+  groupType    GroupType
+  visibility   GroupVisibility @default(PRIVATE)
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  church       Church          @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  leader       User?           @relation("GroupLeader", fields: [leaderUserId], references: [id], onDelete: SetNull)
+  memberships  GroupMember[]
+  events       Event[]
+  posts        GroupPost[]
+}
+
+model GroupMember {
+  id       String          @id @default(cuid())
+  groupId  String
+  memberId String
+  role     GroupMemberRole @default(MEMBER)
+  joinedAt DateTime        @default(now())
+  group    Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  member   Member          @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, memberId])
+}
+
+model Calendar {
+  id                String             @id @default(cuid())
+  churchId          String
+  ownerUserId       String?
+  name              String
+  description       String?
+  colorHex          String?
+  visibility        CalendarVisibility
+  isAbsenceCalendar Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  church            Church             @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  owner             User?              @relation("CalendarOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  members           CalendarMember[]
+  entries           CalendarEvent[]
+}
+
+model CalendarMember {
+  id         String       @id @default(cuid())
+  calendarId String
+  userId     String
+  role       CalendarRole
+  calendar   Calendar     @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, userId])
+}
+
+model CalendarEvent {
+  id              String            @id @default(cuid())
+  churchId        String
+  calendarId      String
+  createdByUserId String?
+  linkedEventId   String?
+  title           String
+  description     String?
+  eventType       CalendarEventType @default(OTHER)
+  startsAt        DateTime
+  endsAt          DateTime
+  isAllDay        Boolean           @default(false)
+  location        String?
+  isAbsence       Boolean           @default(false)
+  isApproved      Boolean           @default(true)
+  isPublished     Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  church          Church            @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  calendar        Calendar          @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  createdBy       User?             @relation("CalendarEventCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  linkedEvent     Event?            @relation(fields: [linkedEventId], references: [id], onDelete: SetNull)
+
+  @@index([churchId, startsAt])
+  @@index([calendarId, startsAt])
+}
+model GroupPost {
+  id             String       @id @default(cuid())
+  churchId       String
+  groupId        String
+  authorMemberId String
+  postType       FeedPostType @default(TEXT)
+  title          String?
+  body           String?
+  isPinned       Boolean      @default(false)
+  isLocked       Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  group          Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  author         Member       @relation(fields: [authorMemberId], references: [id], onDelete: Cascade)
+  media          GroupMedia[]
+  comments       GroupComment[]
+  reactions      GroupReaction[]
+
+  @@index([groupId, createdAt])
+}
+
+model GroupComment {
+  id             String         @id @default(cuid())
+  postId         String
+  authorMemberId String
+  parentId       String?
+  body           String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  post           GroupPost      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author         Member         @relation(fields: [authorMemberId], references: [id], onDelete: Cascade)
+  parent         GroupComment?  @relation("GroupCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies        GroupComment[] @relation("GroupCommentReplies")
+}
+
+model GroupReaction {
+  id           String           @id @default(cuid())
+  postId       String
+  memberId     String
+  reactionType FeedReactionType
+  createdAt    DateTime         @default(now())
+  post         GroupPost        @relation(fields: [postId], references: [id], onDelete: Cascade)
+  member       Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, memberId, reactionType])
+}
+
+model GroupMedia {
+  id           String    @id @default(cuid())
+  postId       String
+  mediaType    String
+  url          String
+  thumbnailUrl String?
+  durationSec  Int?
+  createdAt    DateTime  @default(now())
+  post         GroupPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model SocialAccount {
+  id                String         @id @default(cuid())
+  churchId          String
+  platform          SocialPlatform
+  accountLabel      String
+  externalAccountId String?
+  accessTokenRef    String?
+  refreshTokenRef   String?
+  isActive          Boolean        @default(true)
+  autoFeedPosts     Boolean        @default(false)
+  autoStories       Boolean        @default(false)
+  autoShortVideos   Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  church            Church         @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  posts             SocialPost[]
+}
+
+model SocialPost {
+  id              String           @id @default(cuid())
+  churchId        String
+  socialAccountId String?
+  assetId         String?
+  title           String?
+  caption         String?
+  postType        SocialPostType
+  status          SocialPostStatus @default(DRAFT)
+  scheduledFor    DateTime?
+  publishedAt     DateTime?
+  externalPostId  String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  church          Church           @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount?   @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
+  asset           ContentAsset?    @relation(fields: [assetId], references: [id], onDelete: SetNull)
+}
+
+model ContentAsset {
+  id             String           @id @default(cuid())
+  churchId       String
+  sequenceNumber Int?
+  assetType      ContentAssetType
+  title          String
+  scriptureRef   String?
+  body           String?
+  fileUrl        String?
+  thumbnailUrl   String?
+  durationSec    Int?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  church         Church           @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  socialPosts    SocialPost[]
+
+  @@unique([churchId, assetType, sequenceNumber])
+}
+
+
+

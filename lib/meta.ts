@@ -1,0 +1,159 @@
+import { env } from "@/lib/env";
+import { prisma } from "@/lib/db/prisma";
+
+const META_GRAPH_VERSION = "v23.0";
+const META_SCOPES = [
+  "public_profile",
+  "pages_show_list",
+].join(",");
+
+function requireMetaEnv() {
+  if (!env.META_APP_ID || !env.META_APP_SECRET || !env.META_REDIRECT_URI) {
+    throw new Error("Meta environment variables are missing.");
+  }
+}
+
+export function isMetaConfigured() {
+  return Boolean(env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI);
+}
+
+export function getMetaConnectUrl(churchId: string) {
+  requireMetaEnv();
+
+  const state = Buffer.from(JSON.stringify({ churchId })).toString("base64url");
+  const url = new URL(`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`);
+  url.searchParams.set("client_id", env.META_APP_ID!);
+  url.searchParams.set("redirect_uri", env.META_REDIRECT_URI!);
+  url.searchParams.set("scope", META_SCOPES);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("state", state);
+  return url.toString();
+}
+
+function decodeState(state: string | null) {
+  if (!state) {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(state, "base64url").toString("utf8");
+    const parsed = JSON.parse(decoded) as { churchId?: string };
+    return parsed.churchId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function exchangeMetaCodeForToken(code: string) {
+  requireMetaEnv();
+
+  const tokenUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token`);
+  tokenUrl.searchParams.set("client_id", env.META_APP_ID!);
+  tokenUrl.searchParams.set("client_secret", env.META_APP_SECRET!);
+  tokenUrl.searchParams.set("redirect_uri", env.META_REDIRECT_URI!);
+  tokenUrl.searchParams.set("code", code);
+
+  const response = await fetch(tokenUrl.toString(), { cache: "no-store" });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error?.message || "Meta token exchange failed.");
+  }
+
+  return data.access_token as string;
+}
+
+type MetaPage = {
+  id: string;
+  name: string;
+  access_token?: string;
+  instagram_business_account?: {
+    id: string;
+    username?: string;
+    name?: string;
+  };
+};
+
+export async function importMetaAccountsFromCode(code: string, state: string | null, fallbackChurchId: string) {
+  const churchId = decodeState(state) || fallbackChurchId;
+  const userAccessToken = await exchangeMetaCodeForToken(code);
+
+  const pagesUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/me/accounts`);
+  pagesUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username,name}");
+  pagesUrl.searchParams.set("access_token", userAccessToken);
+
+  const response = await fetch(pagesUrl.toString(), { cache: "no-store" });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error?.message || "Could not load Meta pages.");
+  }
+
+  const pages = (data.data || []) as MetaPage[];
+
+  for (const page of pages) {
+    const existingPage = await prisma.socialAccount.findFirst({
+      where: {
+        churchId,
+        platform: "FACEBOOK_PAGE",
+        externalAccountId: page.id,
+      },
+    });
+
+    if (existingPage) {
+      await prisma.socialAccount.update({
+        where: { id: existingPage.id },
+        data: {
+          accountLabel: page.name,
+          accessTokenRef: page.access_token || null,
+          isActive: true,
+        },
+      });
+    } else {
+      await prisma.socialAccount.create({
+        data: {
+          churchId,
+          platform: "FACEBOOK_PAGE",
+          accountLabel: page.name,
+          externalAccountId: page.id,
+          accessTokenRef: page.access_token || null,
+          isActive: true,
+        },
+      });
+    }
+
+    if (page.instagram_business_account) {
+      const ig = page.instagram_business_account;
+      const label = ig.username || ig.name || `Instagram ${ig.id}`;
+      const existingIg = await prisma.socialAccount.findFirst({
+        where: {
+          churchId,
+          platform: "INSTAGRAM",
+          externalAccountId: ig.id,
+        },
+      });
+
+      if (existingIg) {
+        await prisma.socialAccount.update({
+          where: { id: existingIg.id },
+          data: {
+            accountLabel: label,
+            accessTokenRef: page.access_token || null,
+            isActive: true,
+          },
+        });
+      } else {
+        await prisma.socialAccount.create({
+          data: {
+            churchId,
+            platform: "INSTAGRAM",
+            accountLabel: label,
+            externalAccountId: ig.id,
+            accessTokenRef: page.access_token || null,
+            isActive: true,
+          },
+        });
+      }
+    }
+  }
+}
