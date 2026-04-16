@@ -1,0 +1,4 @@
+ALTER TABLE "SocialAccount"
+ADD COLUMN "autoFeedPosts" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "autoStories" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "autoShortVideos" BOOLEAN NOT NULL DEFAULT false;
