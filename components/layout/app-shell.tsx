@@ -1,4 +1,5 @@
-﻿import Link from "next/link";
+import type { Route } from "next";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { navItems } from "@/lib/navigation";
 
@@ -29,8 +30,9 @@ export function AppShell({
         <nav className="sidebar-nav" aria-label="Primary navigation">
           {navItems.map((item) => {
             const active = currentPath === item.href || currentPath.startsWith(`${item.href}/`);
+
             return (
-              <Link key={item.href} href={item.href} className={`nav-link${active ? " active" : ""}`}>
+              <Link key={item.href} href={item.href as Route} className={`nav-link${active ? " active" : ""}`}>
                 <strong>{item.label}</strong>
                 <div className="muted">{item.description}</div>
               </Link>
