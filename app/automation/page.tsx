@@ -120,29 +120,13 @@ export default async function AutomationPage() {
   const auth = await requireAuthContext();
   const dayOfYear = getChicagoDayOfYear();
 
-  const [socialAccounts, imageStatus, reelStatus, imagePlans, reelPlans] = await Promise.all([
+  const [socialAccounts, imageStatus, reelStatus] = await Promise.all([
     prisma.socialAccount.findMany({
       where: { churchId: auth.churchId },
       orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
     }),
     getBucketReadiness("IMAGES"),
     getBucketReadiness("REELS"),
-    prisma.socialPost.count({
-      where: {
-        churchId: auth.churchId,
-        postType: "FEED_POST",
-        status: { in: ["READY", "SCHEDULED"] },
-        asset: { is: { assetType: "DAILY_IMAGE" } },
-      },
-    }),
-    prisma.socialPost.count({
-      where: {
-        churchId: auth.churchId,
-        postType: "SHORT_VIDEO",
-        status: { in: ["READY", "SCHEDULED"] },
-        asset: { is: { assetType: "DEVOTIONAL_VIDEO" } },
-      },
-    }),
   ]);
 
   return (
@@ -206,12 +190,12 @@ export default async function AutomationPage() {
             <div className="muted">{reelStatus.helper}</div>
 
             <div className="list-item">
-              <span>Images plan</span>
-              <strong>{imagePlans ? "Active" : "Not scheduled"}</strong>
+              <span>Connected accounts</span>
+              <strong>{socialAccounts.length ? `${socialAccounts.length} ready` : "None yet"}</strong>
             </div>
             <div className="list-item">
-              <span>Reels plan</span>
-              <strong>{reelPlans ? "Active" : "Not scheduled"}</strong>
+              <span>Today of year</span>
+              <strong>{dayOfYear}</strong>
             </div>
           </div>
         </SectionCard>
