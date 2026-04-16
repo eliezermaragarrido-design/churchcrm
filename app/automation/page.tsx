@@ -13,6 +13,10 @@ import {
   scheduleYearReelsAction,
 } from "./actions";
 
+type AutomationSearchParams = Promise<{
+  meta?: string | string[];
+}>;
+
 function getChicagoDayOfYear(date = new Date()) {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Chicago",
@@ -116,9 +120,39 @@ async function getBucketReadiness(bucketName: "IMAGES" | "REELS") {
   };
 }
 
-export default async function AutomationPage() {
+function getMetaMessage(metaStatus?: string) {
+  if (!metaStatus) {
+    return null;
+  }
+
+  if (metaStatus === "connected") {
+    return {
+      tone: "default" as const,
+      title: "Meta connected",
+      body: "Facebook returned successfully. If the accounts list is still empty, refresh once so the latest connected pages load into the workspace.",
+    };
+  }
+
+  const readableStatus = metaStatus
+    .replaceAll("+", " ")
+    .replaceAll("-", " ")
+    .trim();
+
+  return {
+    tone: "warn" as const,
+    title: "Meta connection needs attention",
+    body: readableStatus,
+  };
+}
+
+export default async function AutomationPage({ searchParams }: { searchParams?: AutomationSearchParams }) {
   const auth = await requireAuthContext();
   const dayOfYear = getChicagoDayOfYear();
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const metaParam = Array.isArray(resolvedSearchParams.meta)
+    ? resolvedSearchParams.meta[0]
+    : resolvedSearchParams.meta;
+  const metaMessage = getMetaMessage(metaParam);
 
   const [socialAccounts, imageStatus, reelStatus] = await Promise.all([
     prisma.socialAccount.findMany({
@@ -136,6 +170,17 @@ export default async function AutomationPage() {
       currentPath="/automation"
       actions={<Badge>Day {dayOfYear}</Badge>}
     >
+      {metaMessage ? (
+        <section>
+          <SectionCard title={metaMessage.title}>
+            <div className="stack">
+              <Badge tone={metaMessage.tone}>{metaMessage.tone === "default" ? "Success" : "Check"}</Badge>
+              <div className="muted">{metaMessage.body}</div>
+            </div>
+          </SectionCard>
+        </section>
+      ) : null}
+
       <section className="two-column narrow-right">
         <SectionCard title="Autopost setup">
           <form className="form-grid simple-form">
