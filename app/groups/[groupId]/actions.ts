@@ -1,14 +1,14 @@
 ﻿"use server";
 
 import { randomUUID } from "crypto";
-import { FeedReactionType } from "@prisma/client";
+import { FeedPostType, FeedReactionType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-const allowedPostTypes = new Set(["TEXT", "PHOTO", "VIDEO", "ANNOUNCEMENT", "PRAYER_REQUEST"]);
+const allowedPostTypes = new Set<FeedPostType>(["TEXT", "PHOTO", "VIDEO", "ANNOUNCEMENT", "PRAYER_REQUEST"]);
 const allowedReactionTypes = new Set<FeedReactionType>(["LIKE", "AMEN", "PRAY", "LOVE"]);
 
 export async function createGroupPostAction(formData: FormData) {
@@ -18,7 +18,7 @@ export async function createGroupPostAction(formData: FormData) {
   const authorMemberId = String(formData.get("authorMemberId") || "");
   const title = String(formData.get("title") || "").trim() || undefined;
   const body = String(formData.get("body") || "").trim();
-  const requestedType = String(formData.get("postType") || "TEXT");
+  const requestedType = String(formData.get("postType") || "TEXT") as FeedPostType;
   const postType = allowedPostTypes.has(requestedType) ? requestedType : "TEXT";
   const mediaFile = formData.get("mediaFile");
 
