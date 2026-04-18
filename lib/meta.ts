@@ -91,6 +91,9 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
 
   const pages = (data.data || []) as MetaPage[];
 
+  let importedCount = 0;
+  const importedLabels: string[] = [];
+
   for (const page of pages) {
     const existingPage = await prisma.socialAccount.findFirst({
       where: {
@@ -121,6 +124,9 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
         },
       });
     }
+
+    importedCount += 1;
+    importedLabels.push(page.name);
 
     if (page.instagram_business_account) {
       const ig = page.instagram_business_account;
@@ -154,6 +160,16 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
           },
         });
       }
+
+      importedCount += 1;
+      importedLabels.push(label);
     }
   }
+
+  return {
+    churchId,
+    importedCount,
+    importedLabels,
+    pageCount: pages.length,
+  };
 }

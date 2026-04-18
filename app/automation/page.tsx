@@ -125,11 +125,18 @@ function getMetaMessage(metaStatus?: string) {
     return null;
   }
 
-  if (metaStatus === "connected") {
+  if (metaStatus.startsWith("connected")) {
+    const [, importedCountRaw, pageCountRaw] = metaStatus.split(":");
+    const importedCount = Number(importedCountRaw || "0");
+    const pageCount = Number(pageCountRaw || "0");
+
     return {
       tone: "default" as const,
       title: "Meta connected",
-      body: "Facebook returned successfully. If the accounts list is still empty, refresh once so the latest connected pages load into the workspace.",
+      body:
+        importedCount > 0
+          ? `Facebook returned successfully and imported ${importedCount} connected account${importedCount === 1 ? "" : "s"} from ${pageCount} selected page${pageCount === 1 ? "" : "s"}.`
+          : `Facebook returned successfully, but Meta did not provide any importable accounts. Selected pages: ${pageCount}.`,
     };
   }
 

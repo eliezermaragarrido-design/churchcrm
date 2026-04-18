@@ -17,8 +17,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    await importMetaAccountsFromCode(code, state, env.DEFAULT_CHURCH_ID);
-    return NextResponse.redirect(new URL("/automation?meta=connected", url.origin));
+    const result = await importMetaAccountsFromCode(code, state, env.DEFAULT_CHURCH_ID);
+    return NextResponse.redirect(
+      new URL(
+        `/automation?meta=${encodeURIComponent(`connected:${result.importedCount}:${result.pageCount}`)}`,
+        url.origin,
+      ),
+    );
   } catch (callbackError) {
     const message = callbackError instanceof Error ? callbackError.message : "meta-callback-failed";
     return NextResponse.redirect(new URL(`/automation?meta=${encodeURIComponent(message)}`, url.origin));
