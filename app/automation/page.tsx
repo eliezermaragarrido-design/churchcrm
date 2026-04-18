@@ -152,6 +152,22 @@ function getMetaMessage(metaStatus?: string) {
   };
 }
 
+async function getVisibleSocialAccounts(churchId: string) {
+  const churchAccounts = await prisma.socialAccount.findMany({
+    where: { churchId },
+    orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
+  });
+
+  if (churchAccounts.length) {
+    return churchAccounts;
+  }
+
+  return prisma.socialAccount.findMany({
+    where: { isActive: true },
+    orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
+  });
+}
+
 export default async function AutomationPage({ searchParams }: { searchParams?: AutomationSearchParams }) {
   const auth = await requireAuthContext();
   const dayOfYear = getChicagoDayOfYear();
@@ -162,10 +178,7 @@ export default async function AutomationPage({ searchParams }: { searchParams?: 
   const metaMessage = getMetaMessage(metaParam);
 
   const [socialAccounts, imageStatus, reelStatus] = await Promise.all([
-    prisma.socialAccount.findMany({
-      where: { churchId: auth.churchId },
-      orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
-    }),
+    getVisibleSocialAccounts(auth.churchId),
     getBucketReadiness("IMAGES"),
     getBucketReadiness("REELS"),
   ]);

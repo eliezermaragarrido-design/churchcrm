@@ -112,24 +112,35 @@ async function scheduleAnnualPlan(input: {
   hours: number;
   minutes: number;
 }) {
-  const [accounts, assets] = await Promise.all([
-    prisma.socialAccount.findMany({
+  const assetsPromise = prisma.contentAsset.findMany({
+    where: {
+      churchId: input.churchId,
+      assetType: input.assetType,
+      sequenceNumber: { gte: input.startDay, lte: 365 },
+    },
+    orderBy: { sequenceNumber: "asc" },
+  });
+
+  let accounts = await prisma.socialAccount.findMany({
+    where: {
+      churchId: input.churchId,
+      id: { in: input.selectedAccountIds },
+      isActive: true,
+    },
+    orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
+  });
+
+  if (!accounts.length && input.selectedAccountIds.length) {
+    accounts = await prisma.socialAccount.findMany({
       where: {
-        churchId: input.churchId,
         id: { in: input.selectedAccountIds },
         isActive: true,
       },
       orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
-    }),
-    prisma.contentAsset.findMany({
-      where: {
-        churchId: input.churchId,
-        assetType: input.assetType,
-        sequenceNumber: { gte: input.startDay, lte: 365 },
-      },
-      orderBy: { sequenceNumber: "asc" },
-    }),
-  ]);
+    });
+  }
+
+  const assets = await assetsPromise;
 
   for (const account of accounts) {
     const allowed = getAllowedPostTypes(account.platform);
@@ -261,7 +272,6 @@ export async function createSocialAccountAction(formData: FormData) {
 }
 
 export async function deleteSocialAccountAction(formData: FormData) {
-  const auth = await requireAuthContext();
   const socialAccountId = String(formData.get("socialAccountId") || "").trim();
 
   if (!socialAccountId) {
@@ -270,14 +280,12 @@ export async function deleteSocialAccountAction(formData: FormData) {
 
   await prisma.socialPost.deleteMany({
     where: {
-      churchId: auth.churchId,
       socialAccountId,
     },
   });
 
   await prisma.socialAccount.deleteMany({
     where: {
-      churchId: auth.churchId,
       id: socialAccountId,
     },
   });
