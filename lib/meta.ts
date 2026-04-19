@@ -5,6 +5,7 @@ const META_GRAPH_VERSION = "v23.0";
 const META_SCOPES = [
   "public_profile",
   "pages_show_list",
+  "business_management",
 ].join(",");
 
 function requireMetaEnv() {
@@ -27,6 +28,7 @@ export function getMetaConnectUrl(churchId: string) {
   url.searchParams.set("scope", META_SCOPES);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);
+  url.searchParams.set("auth_type", "rerequest");
   return url.toString();
 }
 
@@ -67,7 +69,13 @@ type MetaPage = {
   id: string;
   name: string;
   access_token?: string;
+  tasks?: string[];
   instagram_business_account?: {
+    id: string;
+    username?: string;
+    name?: string;
+  };
+  connected_instagram_account?: {
     id: string;
     username?: string;
     name?: string;
@@ -79,7 +87,18 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
   const userAccessToken = await exchangeMetaCodeForToken(code);
 
   const pagesUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/me/accounts`);
-  pagesUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username,name}");
+  pagesUrl.searchParams.set(
+    "fields",
+    [
+      "id",
+      "name",
+      "access_token",
+      "tasks",
+      "instagram_business_account{id,username,name}",
+      "connected_instagram_account{id,username,name}",
+    ].join(","),
+  );
+  pagesUrl.searchParams.set("limit", "200");
   pagesUrl.searchParams.set("access_token", userAccessToken);
 
   const response = await fetch(pagesUrl.toString(), { cache: "no-store" });
@@ -90,6 +109,13 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
   }
 
   const pages = (data.data || []) as MetaPage[];
+
+  console.info("Meta page import response", {
+    churchId,
+    pageCount: pages.length,
+    pageLabels: pages.map((page) => page.name),
+    scopesRequested: META_SCOPES,
+  });
 
   let importedCount = 0;
   const importedLabels: string[] = [];
@@ -128,8 +154,10 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
     importedCount += 1;
     importedLabels.push(page.name);
 
-    if (page.instagram_business_account) {
-      const ig = page.instagram_business_account;
+    const instagramAccount = page.instagram_business_account || page.connected_instagram_account;
+
+    if (instagramAccount) {
+      const ig = instagramAccount;
       const label = ig.username || ig.name || `Instagram ${ig.id}`;
       const existingIg = await prisma.socialAccount.findFirst({
         where: {
