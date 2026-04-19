@@ -25,7 +25,7 @@ export async function GET(request: Request) {
       META_PENDING_COOKIE,
       JSON.stringify({
         churchId: result.churchId,
-        selections: result.selections,
+        userAccessToken: result.userAccessToken,
       }),
       {
         httpOnly: true,

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { AppShell } from "@/components/layout/app-shell";
 import { SectionCard } from "@/components/layout/section-card";
+import { getPendingMetaPageSelections, isMetaConfigured, type PendingMetaPageSelection } from "@/lib/meta";
 import {
   cancelMetaSelectionAction,
   deleteSocialAccountAction,
@@ -13,7 +14,6 @@ import {
   scheduleYearImagesAction,
   scheduleYearReelsAction,
 } from "./actions";
-import type { PendingMetaPageSelection } from "@/lib/meta";
 
 const META_PENDING_COOKIE = "meta_pending_pages";
 
@@ -38,17 +38,8 @@ function getPlatformLabel(platform: string) {
 }
 
 async function getVisibleSocialAccounts(churchId: string) {
-  const churchAccounts = await prisma.socialAccount.findMany({
-    where: { churchId },
-    orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
-  });
-
-  if (churchAccounts.length) {
-    return churchAccounts;
-  }
-
   return prisma.socialAccount.findMany({
-    where: { isActive: true },
+    where: { churchId },
     orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
   });
 }
@@ -62,9 +53,10 @@ export default async function AutomationPage() {
   if (rawPendingSelection) {
     try {
       const parsed = JSON.parse(rawPendingSelection) as {
-        selections?: PendingMetaPageSelection[];
+        userAccessToken?: string;
       };
-      pendingSelections = Array.isArray(parsed.selections) ? parsed.selections : [];
+      const userAccessToken = String(parsed.userAccessToken || "").trim();
+      pendingSelections = userAccessToken ? await getPendingMetaPageSelections(userAccessToken) : [];
     } catch {
       pendingSelections = [];
     }
@@ -131,7 +123,11 @@ export default async function AutomationPage() {
               Add the social accounts that should be available for automatic posting.
             </div>
             <div className="toolbar toolbar-start">
-              <Link href="/api/meta/connect" className="button">Connect Facebook + Instagram</Link>
+              {isMetaConfigured() ? (
+                <Link href="/api/meta/connect" className="button">Connect Facebook + Instagram</Link>
+              ) : (
+                <button className="button secondary" type="button" disabled>Meta not configured</button>
+              )}
             </div>
             <div className="toolbar toolbar-start">
               <button className="button secondary" type="button" disabled>TikTok soon</button>

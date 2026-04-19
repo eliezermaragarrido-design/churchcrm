@@ -92,10 +92,7 @@ export type PendingMetaPageSelection = {
   };
 };
 
-export async function fetchMetaPagesFromCode(code: string, state: string | null, fallbackChurchId: string) {
-  const churchId = decodeState(state) || fallbackChurchId;
-  const userAccessToken = await exchangeMetaCodeForToken(code);
-
+async function fetchMetaPagesFromUserToken(userAccessToken: string) {
   const pagesUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/me/accounts`);
   pagesUrl.searchParams.set(
     "fields",
@@ -118,16 +115,13 @@ export async function fetchMetaPagesFromCode(code: string, state: string | null,
     throw new Error(data?.error?.message || "Could not load Meta pages.");
   }
 
-  const pages = (data.data || []) as MetaPage[];
+  return (data.data || []) as MetaPage[];
+}
 
-  console.info("Meta page import response", {
-    churchId,
-    pageCount: pages.length,
-    pageLabels: pages.map((page) => page.name),
-    scopesRequested: META_SCOPES,
-  });
+export async function getPendingMetaPageSelections(userAccessToken: string) {
+  const pages = await fetchMetaPagesFromUserToken(userAccessToken);
 
-  const selections: PendingMetaPageSelection[] = pages.map((page) => {
+  return pages.map((page) => {
     const instagramAccount = page.instagram_business_account || page.connected_instagram_account;
 
     return {
@@ -141,11 +135,25 @@ export async function fetchMetaPagesFromCode(code: string, state: string | null,
           }
         : undefined,
     };
+  }) satisfies PendingMetaPageSelection[];
+}
+
+export async function fetchMetaPagesFromCode(code: string, state: string | null, fallbackChurchId: string) {
+  const churchId = decodeState(state) || fallbackChurchId;
+  const userAccessToken = await exchangeMetaCodeForToken(code);
+  const selections = await getPendingMetaPageSelections(userAccessToken);
+
+  console.info("Meta page import response", {
+    churchId,
+    pageCount: selections.length,
+    pageLabels: selections.map((page) => page.name),
+    scopesRequested: META_SCOPES,
   });
 
   return {
     churchId,
-    pageCount: pages.length,
+    pageCount: selections.length,
+    userAccessToken,
     selections,
   };
 }
@@ -172,7 +180,7 @@ export async function saveSelectedMetaPages(churchId: string, selections: Pendin
         where: { id: existingPage.id },
         data: {
           accountLabel: page.name,
-          accessTokenRef: page.access_token || null,
+          accessTokenRef: page.accessTokenRef,
           isActive: true,
         },
       });
@@ -234,6 +242,6 @@ export async function saveSelectedMetaPages(churchId: string, selections: Pendin
     churchId,
     importedCount,
     importedLabels,
-    pageCount: pages.length,
+    pageCount: selections.length,
   };
 }

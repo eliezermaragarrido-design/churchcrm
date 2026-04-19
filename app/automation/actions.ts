@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { saveSelectedMetaPages, type PendingMetaPageSelection } from "@/lib/meta";
+import { getPendingMetaPageSelections, saveSelectedMetaPages } from "@/lib/meta";
 import type { ContentAssetType, SocialPlatform, SocialPostStatus, SocialPostType } from "@prisma/client";
 
 const META_PENDING_COOKIE = "meta_pending_pages";
@@ -133,16 +133,6 @@ async function scheduleAnnualPlan(input: {
     },
     orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
   });
-
-  if (!accounts.length && input.selectedAccountIds.length) {
-    accounts = await prisma.socialAccount.findMany({
-      where: {
-        id: { in: input.selectedAccountIds },
-        isActive: true,
-      },
-      orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
-    });
-  }
 
   const assets = await assetsPromise;
 
@@ -315,13 +305,14 @@ export async function saveMetaSelectionAction(formData: FormData) {
   try {
     const parsed = JSON.parse(raw) as {
       churchId?: string;
-      selections?: PendingMetaPageSelection[];
+      userAccessToken?: string;
     };
 
-    const selections = Array.isArray(parsed.selections) ? parsed.selections : [];
     const churchId = parsed.churchId || auth.churchId;
+    const userAccessToken = String(parsed.userAccessToken || "").trim();
 
-    if (selectedPageIds.length) {
+    if (selectedPageIds.length && userAccessToken) {
+      const selections = await getPendingMetaPageSelections(userAccessToken);
       await saveSelectedMetaPages(churchId, selections, selectedPageIds);
     }
   } finally {
