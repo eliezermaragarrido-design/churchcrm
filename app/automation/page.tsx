@@ -1,15 +1,21 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { AppShell } from "@/components/layout/app-shell";
 import { SectionCard } from "@/components/layout/section-card";
 import {
+  cancelMetaSelectionAction,
   deleteSocialAccountAction,
   pauseYearImagesAction,
   pauseYearReelsAction,
+  saveMetaSelectionAction,
   scheduleYearImagesAction,
   scheduleYearReelsAction,
 } from "./actions";
+import type { PendingMetaPageSelection } from "@/lib/meta";
+
+const META_PENDING_COOKIE = "meta_pending_pages";
 
 function getPlatformLabel(platform: string) {
   if (platform === "FACEBOOK_PAGE") {
@@ -49,6 +55,20 @@ async function getVisibleSocialAccounts(churchId: string) {
 
 export default async function AutomationPage() {
   const auth = await requireAuthContext();
+  const cookieStore = await cookies();
+  const rawPendingSelection = cookieStore.get(META_PENDING_COOKIE)?.value;
+  let pendingSelections: PendingMetaPageSelection[] = [];
+
+  if (rawPendingSelection) {
+    try {
+      const parsed = JSON.parse(rawPendingSelection) as {
+        selections?: PendingMetaPageSelection[];
+      };
+      pendingSelections = Array.isArray(parsed.selections) ? parsed.selections : [];
+    } catch {
+      pendingSelections = [];
+    }
+  }
 
   const socialAccounts = await getVisibleSocialAccounts(auth.churchId);
 
@@ -58,6 +78,35 @@ export default async function AutomationPage() {
       subtitle="Connect your accounts, choose the posting time, and let the daily image and reel plans run automatically."
       currentPath="/automation"
     >
+      {pendingSelections.length ? (
+        <section>
+          <SectionCard title="Choose the pages to connect">
+            <form className="form-grid simple-form">
+              <div className="stack">
+                <div className="muted">
+                  Select only the Facebook pages you want to keep connected to ChurchCRM.
+                </div>
+                {pendingSelections.map((page) => (
+                  <label key={page.id} className="calendar-event">
+                    <input type="checkbox" name="selectedPageIds" value={page.id} defaultChecked />
+                    {" "}
+                    <strong>{page.name}</strong>
+                    <div className="muted">
+                      Facebook Page{page.instagram ? ` + ${page.instagram.label}` : ""}
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div className="toolbar toolbar-start">
+                <button className="button" formAction={saveMetaSelectionAction} type="submit">Save selected pages</button>
+                <button className="button secondary" formAction={cancelMetaSelectionAction} type="submit">Cancel</button>
+              </div>
+            </form>
+          </SectionCard>
+        </section>
+      ) : null}
+
       <section className="two-column narrow-right">
         <SectionCard title="Connected accounts">
           <div className="list compact-list">

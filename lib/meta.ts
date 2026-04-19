@@ -82,7 +82,17 @@ type MetaPage = {
   };
 };
 
-export async function importMetaAccountsFromCode(code: string, state: string | null, fallbackChurchId: string) {
+export type PendingMetaPageSelection = {
+  id: string;
+  name: string;
+  accessTokenRef: string | null;
+  instagram?: {
+    id: string;
+    label: string;
+  };
+};
+
+export async function fetchMetaPagesFromCode(code: string, state: string | null, fallbackChurchId: string) {
   const churchId = decodeState(state) || fallbackChurchId;
   const userAccessToken = await exchangeMetaCodeForToken(code);
 
@@ -117,10 +127,38 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
     scopesRequested: META_SCOPES,
   });
 
+  const selections: PendingMetaPageSelection[] = pages.map((page) => {
+    const instagramAccount = page.instagram_business_account || page.connected_instagram_account;
+
+    return {
+      id: page.id,
+      name: page.name,
+      accessTokenRef: page.access_token || null,
+      instagram: instagramAccount
+        ? {
+            id: instagramAccount.id,
+            label: instagramAccount.username || instagramAccount.name || `Instagram ${instagramAccount.id}`,
+          }
+        : undefined,
+    };
+  });
+
+  return {
+    churchId,
+    pageCount: pages.length,
+    selections,
+  };
+}
+
+export async function saveSelectedMetaPages(churchId: string, selections: PendingMetaPageSelection[], selectedPageIds: string[]) {
   let importedCount = 0;
   const importedLabels: string[] = [];
 
-  for (const page of pages) {
+  for (const page of selections) {
+    if (!selectedPageIds.includes(page.id)) {
+      continue;
+    }
+
     const existingPage = await prisma.socialAccount.findFirst({
       where: {
         churchId,
@@ -145,7 +183,7 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
           platform: "FACEBOOK_PAGE",
           accountLabel: page.name,
           externalAccountId: page.id,
-          accessTokenRef: page.access_token || null,
+          accessTokenRef: page.accessTokenRef,
           isActive: true,
         },
       });
@@ -154,11 +192,9 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
     importedCount += 1;
     importedLabels.push(page.name);
 
-    const instagramAccount = page.instagram_business_account || page.connected_instagram_account;
-
-    if (instagramAccount) {
-      const ig = instagramAccount;
-      const label = ig.username || ig.name || `Instagram ${ig.id}`;
+    if (page.instagram) {
+      const ig = page.instagram;
+      const label = ig.label;
       const existingIg = await prisma.socialAccount.findFirst({
         where: {
           churchId,
@@ -172,7 +208,7 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
           where: { id: existingIg.id },
           data: {
             accountLabel: label,
-            accessTokenRef: page.access_token || null,
+            accessTokenRef: page.accessTokenRef,
             isActive: true,
           },
         });
@@ -183,7 +219,7 @@ export async function importMetaAccountsFromCode(code: string, state: string | n
             platform: "INSTAGRAM",
             accountLabel: label,
             externalAccountId: ig.id,
-            accessTokenRef: page.access_token || null,
+            accessTokenRef: page.accessTokenRef,
             isActive: true,
           },
         });

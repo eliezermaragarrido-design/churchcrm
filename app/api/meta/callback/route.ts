@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
-import { importMetaAccountsFromCode } from "@/lib/meta";
+import { fetchMetaPagesFromCode } from "@/lib/meta";
+
+const META_PENDING_COOKIE = "meta_pending_pages";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -17,13 +19,23 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await importMetaAccountsFromCode(code, state, env.DEFAULT_CHURCH_ID);
-    return NextResponse.redirect(
-      new URL(
-        `/automation?meta=${encodeURIComponent(`connected:${result.importedCount}:${result.pageCount}`)}`,
-        url.origin,
-      ),
+    const result = await fetchMetaPagesFromCode(code, state, env.DEFAULT_CHURCH_ID);
+    const response = NextResponse.redirect(new URL("/automation?meta=select-pages", url.origin));
+    response.cookies.set(
+      META_PENDING_COOKIE,
+      JSON.stringify({
+        churchId: result.churchId,
+        selections: result.selections,
+      }),
+      {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: true,
+        path: "/",
+        maxAge: 60 * 15,
+      },
     );
+    return response;
   } catch (callbackError) {
     const message = callbackError instanceof Error ? callbackError.message : "meta-callback-failed";
     return NextResponse.redirect(new URL(`/automation?meta=${encodeURIComponent(message)}`, url.origin));

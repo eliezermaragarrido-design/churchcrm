@@ -1,10 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { saveSelectedMetaPages, type PendingMetaPageSelection } from "@/lib/meta";
 import type { ContentAssetType, SocialPlatform, SocialPostStatus, SocialPostType } from "@prisma/client";
+
+const META_PENDING_COOKIE = "meta_pending_pages";
 
 function getChicagoYearDayInfo(date = new Date()) {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -290,6 +294,46 @@ export async function deleteSocialAccountAction(formData: FormData) {
     },
   });
 
+  revalidatePath("/automation");
+}
+
+export async function saveMetaSelectionAction(formData: FormData) {
+  const auth = await requireAuthContext();
+  const selectedPageIds = formData
+    .getAll("selectedPageIds")
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(META_PENDING_COOKIE)?.value;
+
+  if (!raw) {
+    revalidatePath("/automation");
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      churchId?: string;
+      selections?: PendingMetaPageSelection[];
+    };
+
+    const selections = Array.isArray(parsed.selections) ? parsed.selections : [];
+    const churchId = parsed.churchId || auth.churchId;
+
+    if (selectedPageIds.length) {
+      await saveSelectedMetaPages(churchId, selections, selectedPageIds);
+    }
+  } finally {
+    cookieStore.delete(META_PENDING_COOKIE);
+  }
+
+  revalidatePath("/automation");
+}
+
+export async function cancelMetaSelectionAction() {
+  const cookieStore = await cookies();
+  cookieStore.delete(META_PENDING_COOKIE);
   revalidatePath("/automation");
 }
 
