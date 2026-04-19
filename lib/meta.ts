@@ -18,7 +18,12 @@ export function isMetaConfigured() {
   return Boolean(env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI);
 }
 
-export function getMetaConnectUrl(churchId: string) {
+export function getMetaConnectUrl(
+  churchId: string,
+  options?: {
+    forceRelogin?: boolean;
+  },
+) {
   requireMetaEnv();
 
   const state = Buffer.from(JSON.stringify({ churchId })).toString("base64url");
@@ -28,7 +33,13 @@ export function getMetaConnectUrl(churchId: string) {
   url.searchParams.set("scope", META_SCOPES);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);
-  url.searchParams.set("auth_type", "rerequest");
+
+  if (options?.forceRelogin) {
+    url.searchParams.set("auth_type", "reauthenticate");
+  } else {
+    url.searchParams.set("auth_type", "rerequest");
+  }
+
   return url.toString();
 }
 

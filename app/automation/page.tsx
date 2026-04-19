@@ -120,11 +120,14 @@ export default async function AutomationPage() {
         <SectionCard title="Connect accounts">
           <div className="stack">
             <div className="muted">
-              Add the social accounts that should be available for automatic posting.
+              Add the social accounts that should be available for automatic posting. If the pages belong to a different Facebook login, connect that login separately too.
             </div>
             <div className="toolbar toolbar-start">
               {isMetaConfigured() ? (
-                <Link href="/api/meta/connect" className="button">Connect Facebook + Instagram</Link>
+                <>
+                  <Link href="/api/meta/connect" className="button">Connect Facebook + Instagram</Link>
+                  <Link href="/api/meta/connect?mode=switch" className="button secondary">Use another Facebook login</Link>
+                </>
               ) : (
                 <button className="button secondary" type="button" disabled>Meta not configured</button>
               )}

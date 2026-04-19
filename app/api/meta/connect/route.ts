@@ -5,10 +5,15 @@ import { getMetaConnectUrl, isMetaConfigured } from "@/lib/meta";
 export async function GET(request: Request) {
   const auth = await requireAuthContext();
   const url = new URL(request.url);
+  const mode = url.searchParams.get("mode");
 
   if (!isMetaConfigured()) {
     return NextResponse.redirect(new URL("/automation?meta=missing-config", url.origin));
   }
 
-  return NextResponse.redirect(getMetaConnectUrl(auth.churchId));
+  return NextResponse.redirect(
+    getMetaConnectUrl(auth.churchId, {
+      forceRelogin: mode === "switch",
+    }),
+  );
 }
