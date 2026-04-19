@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { AppShell } from "@/components/layout/app-shell";
-import { Badge } from "@/components/layout/badge";
 import { SectionCard } from "@/components/layout/section-card";
 import {
   deleteSocialAccountAction,
@@ -12,29 +10,6 @@ import {
   scheduleYearImagesAction,
   scheduleYearReelsAction,
 } from "./actions";
-
-type AutomationSearchParams = Promise<{
-  meta?: string | string[];
-}>;
-
-function getChicagoDayOfYear(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  });
-
-  const parts = formatter.formatToParts(date);
-  const year = Number(parts.find((part) => part.type === "year")?.value);
-  const month = Number(parts.find((part) => part.type === "month")?.value);
-  const day = Number(parts.find((part) => part.type === "day")?.value);
-
-  const current = Date.UTC(year, month - 1, day);
-  const start = Date.UTC(year, 0, 1);
-
-  return Math.floor((current - start) / 86400000) + 1;
-}
 
 function getPlatformLabel(platform: string) {
   if (platform === "FACEBOOK_PAGE") {
@@ -56,102 +31,6 @@ function getPlatformLabel(platform: string) {
   return platform.replaceAll("_", " ");
 }
 
-function getUsableDaySet(fileNames: string[]) {
-  const usableDays = new Set<number>();
-
-  for (const fileName of fileNames) {
-    const match = fileName.match(/^(\d{1,3})\./i);
-
-    if (!match) {
-      continue;
-    }
-
-    const dayNumber = Number(match[1]);
-
-    if (!dayNumber || dayNumber < 1 || dayNumber > 365) {
-      continue;
-    }
-
-    usableDays.add(dayNumber);
-  }
-
-  return usableDays;
-}
-
-async function getBucketReadiness(bucketName: "IMAGES" | "REELS") {
-  const supabase = createSupabaseAdminClient();
-  const { data, error } = await supabase.storage.from(bucketName).list("", {
-    limit: 1000,
-    sortBy: { column: "name", order: "asc" },
-  });
-
-  if (error || !data) {
-    return {
-      ready: false,
-      label: "Missing files",
-      tone: "warn" as const,
-      helper: `Could not read the ${bucketName} bucket.`,
-    };
-  }
-
-  const usableDays = getUsableDaySet(data.map((entry) => entry.name));
-  const missingDays: number[] = [];
-
-  for (let day = 1; day <= 365; day += 1) {
-    if (!usableDays.has(day)) {
-      missingDays.push(day);
-    }
-  }
-
-  if (missingDays.length === 0) {
-    return {
-      ready: true,
-      label: "Ready",
-      tone: "default" as const,
-      helper: `${bucketName} has all day files from 001 to 365.`,
-    };
-  }
-
-  return {
-    ready: false,
-    label: "Missing files",
-    tone: "warn" as const,
-    helper: `${bucketName} is missing one or more day files between 001 and 365.`,
-  };
-}
-
-function getMetaMessage(metaStatus?: string) {
-  if (!metaStatus) {
-    return null;
-  }
-
-  if (metaStatus.startsWith("connected")) {
-    const [, importedCountRaw, pageCountRaw] = metaStatus.split(":");
-    const importedCount = Number(importedCountRaw || "0");
-    const pageCount = Number(pageCountRaw || "0");
-
-    return {
-      tone: "default" as const,
-      title: "Meta connected",
-      body:
-        importedCount > 0
-          ? `Facebook returned successfully and imported ${importedCount} connected account${importedCount === 1 ? "" : "s"} from ${pageCount} selected page${pageCount === 1 ? "" : "s"}.`
-          : `Facebook returned successfully, but Meta did not provide any importable accounts. Selected pages: ${pageCount}.`,
-    };
-  }
-
-  const readableStatus = metaStatus
-    .replaceAll("+", " ")
-    .replaceAll("-", " ")
-    .trim();
-
-  return {
-    tone: "warn" as const,
-    title: "Meta connection needs attention",
-    body: readableStatus,
-  };
-}
-
 async function getVisibleSocialAccounts(churchId: string) {
   const churchAccounts = await prisma.socialAccount.findMany({
     where: { churchId },
@@ -168,40 +47,52 @@ async function getVisibleSocialAccounts(churchId: string) {
   });
 }
 
-export default async function AutomationPage({ searchParams }: { searchParams?: AutomationSearchParams }) {
+export default async function AutomationPage() {
   const auth = await requireAuthContext();
-  const dayOfYear = getChicagoDayOfYear();
-  const resolvedSearchParams = searchParams ? await searchParams : {};
-  const metaParam = Array.isArray(resolvedSearchParams.meta)
-    ? resolvedSearchParams.meta[0]
-    : resolvedSearchParams.meta;
-  const metaMessage = getMetaMessage(metaParam);
 
-  const [socialAccounts, imageStatus, reelStatus] = await Promise.all([
-    getVisibleSocialAccounts(auth.churchId),
-    getBucketReadiness("IMAGES"),
-    getBucketReadiness("REELS"),
-  ]);
+  const socialAccounts = await getVisibleSocialAccounts(auth.churchId);
 
   return (
     <AppShell
       title="Automation"
-      subtitle="Choose your connected accounts once, set the posting time, and let the yearly image and reel plans run automatically."
+      subtitle="Connect your accounts, choose the posting time, and let the daily image and reel plans run automatically."
       currentPath="/automation"
-      actions={<Badge>Day {dayOfYear}</Badge>}
     >
-      {metaMessage ? (
-        <section>
-          <SectionCard title={metaMessage.title}>
-            <div className="stack">
-              <Badge tone={metaMessage.tone}>{metaMessage.tone === "default" ? "Success" : "Check"}</Badge>
-              <div className="muted">{metaMessage.body}</div>
-            </div>
-          </SectionCard>
-        </section>
-      ) : null}
-
       <section className="two-column narrow-right">
+        <SectionCard title="Connected accounts">
+          <div className="list compact-list">
+            {socialAccounts.length ? socialAccounts.map((account) => (
+              <div key={account.id} className="list-item">
+                <div>
+                  <strong>{account.accountLabel}</strong>
+                  <div className="muted">{getPlatformLabel(account.platform)}</div>
+                </div>
+                <form action={deleteSocialAccountAction}>
+                  <input type="hidden" name="socialAccountId" value={account.id} />
+                  <button className="button secondary danger-button" type="submit">Remove</button>
+                </form>
+              </div>
+            )) : <div className="list-item"><span>No connected accounts yet.</span></div>}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Connect accounts">
+          <div className="stack">
+            <div className="muted">
+              Add the social accounts that should be available for automatic posting.
+            </div>
+            <div className="toolbar toolbar-start">
+              <Link href="/api/meta/connect" className="button">Connect Facebook + Instagram</Link>
+            </div>
+            <div className="toolbar toolbar-start">
+              <button className="button secondary" type="button" disabled>TikTok soon</button>
+              <button className="button secondary" type="button" disabled>YouTube soon</button>
+            </div>
+          </div>
+        </SectionCard>
+      </section>
+
+      <section>
         <SectionCard title="Autopost setup">
           <form className="form-grid simple-form">
             <div className="stack">
@@ -237,65 +128,11 @@ export default async function AutomationPage({ searchParams }: { searchParams?: 
               <button className="button" formAction={scheduleYearReelsAction} type="submit">Publish all year reels</button>
               <button className="button secondary" formAction={pauseYearReelsAction} type="submit">Pause reels</button>
             </div>
+
+            <div className="muted">
+              Images and reels are matched automatically in the background by day number, from 001 to 365.
+            </div>
           </form>
-        </SectionCard>
-
-        <SectionCard title="Plan status">
-          <div className="list compact-list">
-            <div className="list-item">
-              <span>Images library</span>
-              <Badge tone={imageStatus.tone}>{imageStatus.label}</Badge>
-            </div>
-            <div className="muted">{imageStatus.helper}</div>
-
-            <div className="list-item">
-              <span>Reels library</span>
-              <Badge tone={reelStatus.tone}>{reelStatus.label}</Badge>
-            </div>
-            <div className="muted">{reelStatus.helper}</div>
-
-            <div className="list-item">
-              <span>Connected accounts</span>
-              <strong>{socialAccounts.length ? `${socialAccounts.length} ready` : "None yet"}</strong>
-            </div>
-            <div className="list-item">
-              <span>Today of year</span>
-              <strong>{dayOfYear}</strong>
-            </div>
-          </div>
-        </SectionCard>
-      </section>
-
-      <section className="two-column narrow-right">
-        <SectionCard title="Connected accounts">
-          <div className="list compact-list">
-            {socialAccounts.length ? socialAccounts.map((account) => (
-              <div key={account.id} className="list-item">
-                <div>
-                  <strong>{account.accountLabel}</strong>
-                  <div className="muted">{getPlatformLabel(account.platform)}</div>
-                </div>
-                <form action={deleteSocialAccountAction}>
-                  <input type="hidden" name="socialAccountId" value={account.id} />
-                  <button className="button secondary danger-button" type="submit">Remove</button>
-                </form>
-              </div>
-            )) : <div className="list-item"><span>No connected accounts yet.</span></div>}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Connect Meta">
-          <div className="stack">
-            <div className="muted">
-              Connect Facebook Page and Instagram first. The CRM will import the Meta accounts available to your login.
-            </div>
-            <div className="toolbar toolbar-start">
-              <Link href="/api/meta/connect" className="button">Connect Meta</Link>
-            </div>
-            <div className="muted">
-              TikTok, YouTube, and X can be added after Meta is working.
-            </div>
-          </div>
         </SectionCard>
       </section>
     </AppShell>
