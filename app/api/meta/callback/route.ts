@@ -25,6 +25,7 @@ export async function GET(request: Request) {
       META_PENDING_COOKIE,
       JSON.stringify({
         churchId: result.churchId,
+        provider: result.provider,
         userAccessToken: result.userAccessToken,
       }),
       {

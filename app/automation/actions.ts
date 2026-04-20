@@ -39,6 +39,16 @@ function getSelectedAccountIds(formData: FormData) {
     .filter(Boolean);
 }
 
+function getSelectedPostType(formData: FormData) {
+  const raw = String(formData.get("postType") || "").trim() as SocialPostType;
+
+  if (raw === "STORY" || raw === "SHORT_VIDEO") {
+    return raw;
+  }
+
+  return "FEED_POST" satisfies SocialPostType;
+}
+
 function getTimeParts(formData: FormData, fieldName: string) {
   const raw = String(formData.get(fieldName) || "").trim();
   const [hoursRaw, minutesRaw] = raw.split(":");
@@ -104,6 +114,38 @@ async function createQueuedPost(input: {
       scheduledFor: input.scheduledFor,
     },
   });
+}
+
+async function createManualQueuedPosts(input: {
+  churchId: string;
+  selectedAccountIds: string[];
+  title: string;
+  caption: string;
+  postType: SocialPostType;
+  scheduledFor: Date;
+}) {
+  const accounts = await prisma.socialAccount.findMany({
+    where: {
+      churchId: input.churchId,
+      id: { in: input.selectedAccountIds },
+      isActive: true,
+    },
+    orderBy: [{ platform: "asc" }, { accountLabel: "asc" }],
+  });
+
+  for (const account of accounts) {
+    await prisma.socialPost.create({
+      data: {
+        churchId: input.churchId,
+        socialAccountId: account.id,
+        title: input.title || null,
+        caption: input.caption || null,
+        postType: input.postType,
+        status: "READY",
+        scheduledFor: input.scheduledFor,
+      },
+    });
+  }
 }
 
 async function scheduleAnnualPlan(input: {
@@ -305,15 +347,17 @@ export async function saveMetaSelectionAction(formData: FormData) {
   try {
     const parsed = JSON.parse(raw) as {
       churchId?: string;
+      provider?: "facebook" | "instagram";
       userAccessToken?: string;
     };
 
     const churchId = parsed.churchId || auth.churchId;
+    const provider = parsed.provider === "instagram" ? "instagram" : "facebook";
     const userAccessToken = String(parsed.userAccessToken || "").trim();
 
     if (selectedPageIds.length && userAccessToken) {
       const selections = await getPendingMetaPageSelections(userAccessToken);
-      await saveSelectedMetaPages(churchId, selections, selectedPageIds);
+      await saveSelectedMetaPages(churchId, selections, selectedPageIds, provider);
     }
   } finally {
     cookieStore.delete(META_PENDING_COOKIE);
@@ -425,6 +469,45 @@ export async function pauseYearReelsAction(formData: FormData) {
     selectedAccountIds,
     assetType: "DEVOTIONAL_VIDEO",
     postType: "SHORT_VIDEO",
+  });
+
+  revalidatePath("/automation");
+}
+
+export async function createManualSocialPostAction(formData: FormData) {
+  const auth = await requireAuthContext();
+  const selectedAccountIds = getSelectedAccountIds(formData);
+  const postType = getSelectedPostType(formData);
+  const title = String(formData.get("title") || "").trim();
+  const caption = String(formData.get("caption") || "").trim();
+  const scheduleNow = String(formData.get("scheduleMode") || "next").trim();
+  const timeField = postType === "SHORT_VIDEO" ? "manualReelTime" : "manualPostTime";
+  const { hours, minutes } = getTimeParts(formData, timeField);
+  const now = new Date();
+  const scheduledFor =
+    scheduleNow === "now"
+      ? now
+      : new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          hours,
+          minutes,
+          0,
+          0,
+        );
+
+  if (!selectedAccountIds.length || !caption) {
+    return;
+  }
+
+  await createManualQueuedPosts({
+    churchId: auth.churchId,
+    selectedAccountIds,
+    title,
+    caption,
+    postType,
+    scheduledFor,
   });
 
   revalidatePath("/automation");

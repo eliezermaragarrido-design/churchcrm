@@ -6,7 +6,13 @@ const META_SCOPES = [
   "public_profile",
   "pages_show_list",
   "business_management",
+  "instagram_basic",
+  "pages_read_engagement",
+  "pages_manage_posts",
+  "instagram_content_publish",
 ].join(",");
+
+export type MetaConnectProvider = "facebook" | "instagram";
 
 function requireMetaEnv() {
   if (!env.META_APP_ID || !env.META_APP_SECRET || !env.META_REDIRECT_URI) {
@@ -22,11 +28,17 @@ export function getMetaConnectUrl(
   churchId: string,
   options?: {
     forceRelogin?: boolean;
+    provider?: MetaConnectProvider;
   },
 ) {
   requireMetaEnv();
 
-  const state = Buffer.from(JSON.stringify({ churchId })).toString("base64url");
+  const state = Buffer.from(
+    JSON.stringify({
+      churchId,
+      provider: options?.provider || "facebook",
+    }),
+  ).toString("base64url");
   const url = new URL(`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`);
   url.searchParams.set("client_id", env.META_APP_ID!);
   url.searchParams.set("redirect_uri", env.META_REDIRECT_URI!);
@@ -36,6 +48,7 @@ export function getMetaConnectUrl(
 
   if (options?.forceRelogin) {
     url.searchParams.set("auth_type", "reauthenticate");
+    url.searchParams.set("prompt", "select_account");
   } else {
     url.searchParams.set("auth_type", "rerequest");
   }
@@ -50,8 +63,14 @@ function decodeState(state: string | null) {
 
   try {
     const decoded = Buffer.from(state, "base64url").toString("utf8");
-    const parsed = JSON.parse(decoded) as { churchId?: string };
-    return parsed.churchId ?? null;
+    const parsed = JSON.parse(decoded) as {
+      churchId?: string;
+      provider?: MetaConnectProvider;
+    };
+    return {
+      churchId: parsed.churchId ?? null,
+      provider: parsed.provider === "instagram" ? "instagram" : "facebook",
+    };
   } catch {
     return null;
   }
@@ -150,7 +169,9 @@ export async function getPendingMetaPageSelections(userAccessToken: string) {
 }
 
 export async function fetchMetaPagesFromCode(code: string, state: string | null, fallbackChurchId: string) {
-  const churchId = decodeState(state) || fallbackChurchId;
+  const decodedState = decodeState(state);
+  const churchId = decodedState?.churchId || fallbackChurchId;
+  const provider = decodedState?.provider || "facebook";
   const userAccessToken = await exchangeMetaCodeForToken(code);
   const selections = await getPendingMetaPageSelections(userAccessToken);
 
@@ -163,13 +184,19 @@ export async function fetchMetaPagesFromCode(code: string, state: string | null,
 
   return {
     churchId,
+    provider,
     pageCount: selections.length,
     userAccessToken,
     selections,
   };
 }
 
-export async function saveSelectedMetaPages(churchId: string, selections: PendingMetaPageSelection[], selectedPageIds: string[]) {
+export async function saveSelectedMetaPages(
+  churchId: string,
+  selections: PendingMetaPageSelection[],
+  selectedPageIds: string[],
+  provider: MetaConnectProvider = "facebook",
+) {
   let importedCount = 0;
   const importedLabels: string[] = [];
 
@@ -178,40 +205,42 @@ export async function saveSelectedMetaPages(churchId: string, selections: Pendin
       continue;
     }
 
-    const existingPage = await prisma.socialAccount.findFirst({
-      where: {
-        churchId,
-        platform: "FACEBOOK_PAGE",
-        externalAccountId: page.id,
-      },
-    });
-
-    if (existingPage) {
-      await prisma.socialAccount.update({
-        where: { id: existingPage.id },
-        data: {
-          accountLabel: page.name,
-          accessTokenRef: page.accessTokenRef,
-          isActive: true,
-        },
-      });
-    } else {
-      await prisma.socialAccount.create({
-        data: {
+    if (provider === "facebook") {
+      const existingPage = await prisma.socialAccount.findFirst({
+        where: {
           churchId,
           platform: "FACEBOOK_PAGE",
-          accountLabel: page.name,
           externalAccountId: page.id,
-          accessTokenRef: page.accessTokenRef,
-          isActive: true,
         },
       });
+
+      if (existingPage) {
+        await prisma.socialAccount.update({
+          where: { id: existingPage.id },
+          data: {
+            accountLabel: page.name,
+            accessTokenRef: page.accessTokenRef,
+            isActive: true,
+          },
+        });
+      } else {
+        await prisma.socialAccount.create({
+          data: {
+            churchId,
+            platform: "FACEBOOK_PAGE",
+            accountLabel: page.name,
+            externalAccountId: page.id,
+            accessTokenRef: page.accessTokenRef,
+            isActive: true,
+          },
+        });
+      }
+
+      importedCount += 1;
+      importedLabels.push(page.name);
     }
 
-    importedCount += 1;
-    importedLabels.push(page.name);
-
-    if (page.instagram) {
+    if (provider === "instagram" && page.instagram) {
       const ig = page.instagram;
       const label = ig.label;
       const existingIg = await prisma.socialAccount.findFirst({
