@@ -90,11 +90,7 @@ export default async function AutomationPage(props: {
       : pendingSelections;
 
   return (
-    <AppShell
-      title="Automation"
-      subtitle="Connect your accounts, choose the posting time, and let the daily image and reel plans run automatically."
-      currentPath="/automation"
-    >
+    <AppShell title="Automation" subtitle="Connect accounts and let the daily plans run." currentPath="/automation">
       {visiblePendingSelections.length ? (
         <section>
           <SectionCard title={pendingProvider === "instagram" ? "Choose Instagram accounts" : "Choose Facebook pages"}>
@@ -105,9 +101,7 @@ export default async function AutomationPage(props: {
                     <input type="checkbox" name="selectedPageIds" value={page.id} defaultChecked />
                     {" "}
                     <strong>{pendingProvider === "instagram" ? page.instagram?.label || page.name : page.name}</strong>
-                    <div className="muted">
-                      {pendingProvider === "instagram" ? `Instagram linked to ${page.name}` : "Facebook Page"}
-                    </div>
+                    <div className="muted">{pendingProvider === "instagram" ? "Instagram" : "Facebook Page"}</div>
                   </label>
                 ))}
               </div>
@@ -116,7 +110,9 @@ export default async function AutomationPage(props: {
                 <button className="button" formAction={saveMetaSelectionAction} type="submit">
                   Save selected {pendingProvider === "instagram" ? "accounts" : "pages"}
                 </button>
-                <button className="button secondary" formAction={cancelMetaSelectionAction} type="submit">Cancel</button>
+                <button className="button secondary" formAction={cancelMetaSelectionAction} type="submit">
+                  Cancel
+                </button>
               </div>
             </form>
           </SectionCard>
@@ -124,56 +120,73 @@ export default async function AutomationPage(props: {
       ) : null}
 
       <section className="two-column narrow-right">
-        <SectionCard title="Connected accounts">
+          <SectionCard title="Accounts">
           <div className="list compact-list">
-            {socialAccounts.length ? socialAccounts.map((account) => (
-              <div key={account.id} className="list-item">
-                <div>
-                  <strong>{account.accountLabel}</strong>
-                  <div className="muted">{getPlatformLabel(account.platform)}</div>
+            {socialAccounts.length ? (
+              socialAccounts.map((account) => (
+                <div key={account.id} className="list-item">
+                  <div>
+                    <strong>{account.accountLabel}</strong>
+                    <div className="muted">{getPlatformLabel(account.platform)}</div>
+                  </div>
+                  <form action={deleteSocialAccountAction}>
+                    <input type="hidden" name="socialAccountId" value={account.id} />
+                    <button className="button secondary danger-button" type="submit">
+                      Remove
+                    </button>
+                  </form>
                 </div>
-                <form action={deleteSocialAccountAction}>
-                  <input type="hidden" name="socialAccountId" value={account.id} />
-                  <button className="button secondary danger-button" type="submit">Remove</button>
-                </form>
+              ))
+            ) : (
+              <div className="list-item">
+                <span>No accounts yet.</span>
               </div>
-            )) : <div className="list-item"><span>No connected accounts yet.</span></div>}
+            )}
           </div>
         </SectionCard>
 
-        <SectionCard title="Connect accounts">
-          <div className="stack">
-            <div className="toolbar toolbar-start">
-              {isMetaConfigured() ? (
-                <>
-                  <Link href="/api/meta/connect?provider=facebook" className="button">Connect Facebook</Link>
-                  <Link href="/api/meta/connect?provider=instagram" className="button secondary">Connect Instagram</Link>
-                </>
-              ) : (
-                <button className="button secondary" type="button" disabled>Meta not configured</button>
-              )}
-            </div>
-            <div className="toolbar toolbar-start">
-              <button className="button secondary" type="button" disabled>TikTok soon</button>
-              <button className="button secondary" type="button" disabled>YouTube soon</button>
-            </div>
+        <SectionCard title="Connect">
+          <div className="toolbar toolbar-start wrap-toolbar">
+            {isMetaConfigured() ? (
+              <>
+                <Link href="/api/meta/connect?provider=facebook" className="button">
+                  Facebook
+                </Link>
+                <Link href="/api/meta/connect?provider=instagram" className="button secondary">
+                  Instagram
+                </Link>
+              </>
+            ) : (
+              <button className="button secondary" type="button" disabled>
+                Meta unavailable
+              </button>
+            )}
+
+            <button className="button secondary" type="button" disabled>
+              TikTok
+            </button>
+            <button className="button secondary" type="button" disabled>
+              YouTube
+            </button>
           </div>
         </SectionCard>
       </section>
 
-      <section className="two-column narrow-right">
-        <SectionCard title="Autopost setup">
+      <section>
+        <SectionCard title="Autopost">
           <form className="form-grid simple-form" id="autopost-form">
             <div className="stack">
-              {socialAccounts.length ? socialAccounts.map((account) => (
-                <label key={account.id} className="calendar-event">
-                  <input type="checkbox" name="accountIds" value={account.id} defaultChecked />
-                  {" "}
-                  <strong>{account.accountLabel}</strong>
-                  <div className="muted">{getPlatformLabel(account.platform)}</div>
-                </label>
-              )) : (
-                <div className="calendar-event">Connect Meta first, then choose the accounts that should publish automatically.</div>
+              {socialAccounts.length ? (
+                socialAccounts.map((account) => (
+                  <label key={account.id} className="calendar-event">
+                    <input type="checkbox" name="accountIds" value={account.id} defaultChecked />
+                    {" "}
+                    <strong>{account.accountLabel}</strong>
+                    <div className="muted">{getPlatformLabel(account.platform)}</div>
+                  </label>
+                ))
+              ) : (
+                <div className="calendar-event">Add at least one account first.</div>
               )}
             </div>
 
@@ -189,38 +202,46 @@ export default async function AutomationPage(props: {
             </div>
 
             <div className="toolbar toolbar-start">
-              <button className="button" formAction={scheduleYearImagesAction} type="submit">Publish all year images</button>
-              <button className="button secondary" formAction={pauseYearImagesAction} type="submit">Pause images</button>
+              <button className="button" formAction={scheduleYearImagesAction} type="submit">
+                Publish all year images
+              </button>
+              <button className="button secondary" formAction={pauseYearImagesAction} type="submit">
+                Pause images
+              </button>
             </div>
 
             <div className="toolbar toolbar-start">
-              <button className="button" formAction={scheduleYearReelsAction} type="submit">Publish all year reels</button>
-              <button className="button secondary" formAction={pauseYearReelsAction} type="submit">Pause reels</button>
-            </div>
-
-            <div className="muted">
-              Images and reels are matched automatically in the background by day number, from 001 to 365.
+              <button className="button" formAction={scheduleYearReelsAction} type="submit">
+                Publish all year reels
+              </button>
+              <button className="button secondary" formAction={pauseYearReelsAction} type="submit">
+                Pause reels
+              </button>
             </div>
           </form>
         </SectionCard>
+      </section>
 
-        <SectionCard title="Post to selected accounts">
+      <section className="two-column narrow-right">
+        <SectionCard title="Post once">
           <form className="form-grid simple-form">
             <div className="stack">
-              {socialAccounts.length ? socialAccounts.map((account) => (
-                <label key={`manual-${account.id}`} className="calendar-event">
-                  <input type="checkbox" name="accountIds" value={account.id} defaultChecked />
-                  {" "}
-                  <strong>{account.accountLabel}</strong>
-                  <div className="muted">{getPlatformLabel(account.platform)}</div>
-                </label>
-              )) : (
-                <div className="calendar-event">Connect at least one account first.</div>
+              {socialAccounts.length ? (
+                socialAccounts.map((account) => (
+                  <label key={`manual-${account.id}`} className="calendar-event">
+                    <input type="checkbox" name="accountIds" value={account.id} defaultChecked />
+                    {" "}
+                    <strong>{account.accountLabel}</strong>
+                    <div className="muted">{getPlatformLabel(account.platform)}</div>
+                  </label>
+              ))
+            ) : (
+                <div className="calendar-event">Add an account first.</div>
               )}
             </div>
 
             <div className="stack">
-              <label>Post type</label>
+              <label>Type</label>
               <select className="input" name="postType" defaultValue="FEED_POST">
                 <option value="FEED_POST">Feed post</option>
                 <option value="STORY">Story</option>
@@ -234,8 +255,8 @@ export default async function AutomationPage(props: {
             </div>
 
             <div className="stack">
-              <label>Caption or post text</label>
-              <textarea className="input" name="caption" rows={5} placeholder="Write the text you want published across the selected accounts." />
+              <label>Caption</label>
+              <textarea className="input" name="caption" rows={5} placeholder="Write the text for the selected accounts." />
             </div>
 
             <div className="two-up-inputs">
@@ -250,7 +271,7 @@ export default async function AutomationPage(props: {
             </div>
 
             <div className="stack">
-              <label>Schedule</label>
+              <label>When</label>
               <select className="input" name="scheduleMode" defaultValue="next">
                 <option value="next">Queue for the selected time today</option>
                 <option value="now">Send as soon as possible</option>
@@ -258,30 +279,36 @@ export default async function AutomationPage(props: {
             </div>
 
             <div className="toolbar toolbar-start">
-              <button className="button" formAction={createManualSocialPostAction} type="submit">Create post</button>
+              <button className="button" formAction={createManualSocialPostAction} type="submit">
+                Create post
+              </button>
             </div>
           </form>
         </SectionCard>
-      </section>
 
-      <section>
-        <SectionCard title="Queued posts">
+        <SectionCard title="Queue">
           <div className="list compact-list">
-            {queuedPosts.length ? queuedPosts.map((post) => (
-              <div key={post.id} className="list-item">
-                <div>
-                  <strong>{post.title || post.caption || "Untitled post"}</strong>
+            {queuedPosts.length ? (
+              queuedPosts.map((post) => (
+                <div key={post.id} className="list-item">
+                  <div>
+                    <strong>{post.title || post.caption || "Untitled post"}</strong>
+                    <div className="muted">
+                      {post.postType === "FEED_POST" ? "Feed" : post.postType === "STORY" ? "Story" : "Reel"}
+                      {" | "}
+                      {post.socialAccount?.accountLabel || "Unassigned account"}
+                    </div>
+                  </div>
                   <div className="muted">
-                    {(post.postType === "FEED_POST" ? "Feed" : post.postType === "STORY" ? "Story" : "Reel")}
-                    {" · "}
-                    {post.socialAccount?.accountLabel || "Unassigned account"}
+                    {post.scheduledFor ? post.scheduledFor.toLocaleString("en-US") : "Queued"}
                   </div>
                 </div>
-                <div className="muted">
-                  {post.scheduledFor ? post.scheduledFor.toLocaleString("en-US") : "Queued"}
-                </div>
+              ))
+            ) : (
+              <div className="list-item">
+                <span>No queued posts yet.</span>
               </div>
-            )) : <div className="list-item"><span>No queued posts yet.</span></div>}
+            )}
           </div>
         </SectionCard>
       </section>
