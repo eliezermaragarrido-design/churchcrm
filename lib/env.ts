@@ -15,6 +15,10 @@ export const envSchema = z.object({
   TIKTOK_CLIENT_KEY: z.string().optional(),
   TIKTOK_CLIENT_SECRET: z.string().optional(),
   TIKTOK_REDIRECT_URI: z.string().optional(),
+  TIKTOK_USE_SANDBOX: z
+    .string()
+    .optional()
+    .transform((value) => value === "true"),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),
@@ -39,6 +43,7 @@ export const env = envSchema.parse({
   TIKTOK_CLIENT_KEY: process.env.TIKTOK_CLIENT_KEY,
   TIKTOK_CLIENT_SECRET: process.env.TIKTOK_CLIENT_SECRET,
   TIKTOK_REDIRECT_URI: process.env.TIKTOK_REDIRECT_URI,
+  TIKTOK_USE_SANDBOX: process.env.TIKTOK_USE_SANDBOX,
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,

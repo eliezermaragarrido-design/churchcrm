@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
+import { env } from "@/lib/env";
 import { isTikTokConfigured } from "@/lib/social/tiktok";
 import { isYouTubeConfigured } from "@/lib/social/youtube";
 import { AppShell } from "@/components/layout/app-shell";
@@ -298,6 +299,12 @@ export default async function AutomationPage(props: {
             <div className="muted">
               Missing right now in `.env`: TikTok client key/secret/redirect URI, Google client id/secret/redirect URI, and `CRON_SECRET`.
             </div>
+            {env.TIKTOK_USE_SANDBOX ? (
+              <div className="muted">
+                TikTok sandbox mode is enabled. The CRM will request only `user.info.basic` so we can verify account connection first.
+                Public posting scopes are deferred until production review is approved.
+              </div>
+            ) : null}
           </div>
         </SectionCard>
       </section>

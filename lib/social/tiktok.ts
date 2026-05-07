@@ -2,7 +2,14 @@ import { env } from "@/lib/env";
 
 const TIKTOK_OAUTH_BASE = "https://www.tiktok.com/v2/auth/authorize/";
 const TIKTOK_API_BASE = "https://open.tiktokapis.com";
-const TIKTOK_SCOPES = ["user.info.basic", "video.publish", "video.upload"].join(",");
+
+function getTikTokScopes() {
+  if (env.TIKTOK_USE_SANDBOX) {
+    return ["user.info.basic"].join(",");
+  }
+
+  return ["user.info.basic", "video.publish", "video.upload"].join(",");
+}
 
 function requireTikTokEnv() {
   if (!env.TIKTOK_CLIENT_KEY || !env.TIKTOK_CLIENT_SECRET || !env.TIKTOK_REDIRECT_URI) {
@@ -38,7 +45,7 @@ export function getTikTokConnectUrl(churchId: string) {
   url.searchParams.set("client_key", env.TIKTOK_CLIENT_KEY!);
   url.searchParams.set("redirect_uri", env.TIKTOK_REDIRECT_URI!);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", TIKTOK_SCOPES);
+  url.searchParams.set("scope", getTikTokScopes());
   url.searchParams.set("state", encodeState({ churchId, platform: "tiktok" }));
 
   return url.toString();
