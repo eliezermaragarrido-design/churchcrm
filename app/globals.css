@@ -179,7 +179,7 @@ textarea {
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  align-items: end;
+  align-items: flex-end;
 }
 
 .page-title {

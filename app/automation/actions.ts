@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getPendingMetaPageSelections, saveSelectedMetaPages } from "@/lib/meta";
+import { processDueSocialPosts } from "@/server/services/social/service";
 import type { ContentAssetType, SocialPlatform, SocialPostStatus, SocialPostType } from "@prisma/client";
 
 const META_PENDING_COOKIE = "meta_pending_pages";
@@ -119,10 +120,10 @@ async function createQueuedPost(input: {
 async function createManualQueuedPosts(input: {
   churchId: string;
   selectedAccountIds: string[];
-  title: string;
   caption: string;
   postType: SocialPostType;
   scheduledFor: Date;
+  assetId?: string;
 }) {
   const accounts = await prisma.socialAccount.findMany({
     where: {
@@ -138,14 +139,52 @@ async function createManualQueuedPosts(input: {
       data: {
         churchId: input.churchId,
         socialAccountId: account.id,
-        title: input.title || null,
+        title: null,
         caption: input.caption || null,
         postType: input.postType,
-        status: "READY",
+        status: input.scheduledFor <= new Date() ? "READY" : "SCHEDULED",
         scheduledFor: input.scheduledFor,
+        assetId: input.assetId || null,
       },
     });
   }
+}
+
+async function uploadManualAsset(input: {
+  churchId: string;
+  file: File;
+  postType: SocialPostType;
+}) {
+  if (!input.file.size) {
+    return null;
+  }
+
+  const supabase = createSupabaseAdminClient();
+  const extension = input.file.name.includes(".") ? input.file.name.split(".").pop() : undefined;
+  const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}${extension ? `.${extension}` : ""}`;
+  const bucketName = input.postType === "SHORT_VIDEO" ? "REELS" : "IMAGES";
+  const objectPath = `manual/${fileName}`;
+
+  const { error } = await supabase.storage.from(bucketName).upload(objectPath, input.file, {
+    contentType: input.file.type || undefined,
+    upsert: false,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Could not upload media.");
+  }
+
+  const publicUrl = supabase.storage.from(bucketName).getPublicUrl(objectPath).data.publicUrl;
+  const assetType: ContentAssetType = input.postType === "SHORT_VIDEO" ? "DEVOTIONAL_VIDEO" : "DAILY_IMAGE";
+
+  return prisma.contentAsset.create({
+    data: {
+      churchId: input.churchId,
+      assetType,
+      title: input.file.name || "Manual upload",
+      fileUrl: publicUrl,
+    },
+  });
 }
 
 async function scheduleAnnualPlan(input: {
@@ -478,37 +517,43 @@ export async function createManualSocialPostAction(formData: FormData) {
   const auth = await requireAuthContext();
   const selectedAccountIds = getSelectedAccountIds(formData);
   const postType = getSelectedPostType(formData);
-  const title = String(formData.get("title") || "").trim();
   const caption = String(formData.get("caption") || "").trim();
-  const scheduleNow = String(formData.get("scheduleMode") || "next").trim();
-  const timeField = postType === "SHORT_VIDEO" ? "manualReelTime" : "manualPostTime";
-  const { hours, minutes } = getTimeParts(formData, timeField);
-  const now = new Date();
-  const scheduledFor =
-    scheduleNow === "now"
-      ? now
-      : new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          hours,
-          minutes,
-          0,
-          0,
-        );
+  const publishMode = String(formData.get("publishMode") || "NOW").trim();
+  const scheduledAtRaw = String(formData.get("scheduledAt") || "").trim();
+  const mediaFile = formData.get("mediaFile");
 
-  if (!selectedAccountIds.length || !caption) {
+  const scheduledFor =
+    publishMode === "SCHEDULE" && scheduledAtRaw
+      ? new Date(scheduledAtRaw)
+      : new Date();
+
+  if (!selectedAccountIds.length || (!caption && !(mediaFile instanceof File && mediaFile.size))) {
     return;
   }
+
+  const manualAsset =
+    mediaFile instanceof File && mediaFile.size
+      ? await uploadManualAsset({
+          churchId: auth.churchId,
+          file: mediaFile,
+          postType,
+        })
+      : null;
 
   await createManualQueuedPosts({
     churchId: auth.churchId,
     selectedAccountIds,
-    title,
     caption,
     postType,
     scheduledFor,
+    assetId: manualAsset?.id,
   });
 
+  revalidatePath("/automation");
+}
+
+export async function publishDueSocialPostsAction() {
+  await requireAuthContext();
+  await processDueSocialPosts();
   revalidatePath("/automation");
 }
