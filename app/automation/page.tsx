@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { isTikTokConfigured } from "@/lib/social/tiktok";
+import { getTikTokScopeString, isTikTokConfigured } from "@/lib/social/tiktok";
 import { isYouTubeConfigured } from "@/lib/social/youtube";
 import { AppShell } from "@/components/layout/app-shell";
 import { SectionCard } from "@/components/layout/section-card";
@@ -21,6 +21,18 @@ import {
 } from "./actions";
 
 const META_PENDING_COOKIE = "meta_pending_pages";
+
+function maskSecret(value: string | undefined) {
+  if (!value) {
+    return "missing";
+  }
+
+  if (value.length <= 6) {
+    return `${value.slice(0, 2)}***`;
+  }
+
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
 
 function getPlatformLabel(platform: string) {
   if (platform === "FACEBOOK_PAGE") {
@@ -153,6 +165,7 @@ export default async function AutomationPage(props: {
     pendingProvider === "instagram"
       ? pendingSelections.filter((page) => page.instagram)
       : pendingSelections;
+  const tiktokScopeString = getTikTokScopeString();
 
   return (
     <AppShell
@@ -305,6 +318,13 @@ export default async function AutomationPage(props: {
                 Public posting scopes are deferred until production review is approved.
               </div>
             ) : null}
+            <div className="calendar-event">
+              <strong>TikTok diagnostic</strong>
+              <div className="muted">Client key: {maskSecret(env.TIKTOK_CLIENT_KEY)}</div>
+              <div className="muted">Redirect URI: {env.TIKTOK_REDIRECT_URI || "missing"}</div>
+              <div className="muted">Scopes: {tiktokScopeString}</div>
+              <div className="muted">Sandbox mode: {env.TIKTOK_USE_SANDBOX ? "enabled" : "disabled"}</div>
+            </div>
           </div>
         </SectionCard>
       </section>

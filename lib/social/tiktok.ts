@@ -11,6 +11,10 @@ function getTikTokScopes() {
   return ["user.info.basic", "video.publish", "video.upload"].join(",");
 }
 
+export function getTikTokScopeString() {
+  return getTikTokScopes();
+}
+
 function requireTikTokEnv() {
   if (!env.TIKTOK_CLIENT_KEY || !env.TIKTOK_CLIENT_SECRET || !env.TIKTOK_REDIRECT_URI) {
     throw new Error("TikTok environment variables are missing.");
