@@ -21,24 +21,7 @@ export function isTikTokConfigured() {
   return Boolean(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET && env.TIKTOK_REDIRECT_URI);
 }
 
-function encodeState(payload: Record<string, string>) {
-  return Buffer.from(JSON.stringify(payload)).toString("base64url");
-}
-
-function decodeState(state: string | null) {
-  if (!state) {
-    return null;
-  }
-
-  try {
-    const decoded = Buffer.from(state, "base64url").toString("utf8");
-    return JSON.parse(decoded) as Record<string, string>;
-  } catch {
-    return null;
-  }
-}
-
-export function getTikTokConnectUrl(churchId: string) {
+export function getTikTokConnectUrl(state: string) {
   requireTikTokEnv();
 
   const url = new URL(TIKTOK_OAUTH_BASE);
@@ -46,14 +29,10 @@ export function getTikTokConnectUrl(churchId: string) {
   url.searchParams.set("redirect_uri", env.TIKTOK_REDIRECT_URI!);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", getTikTokScopes());
-  url.searchParams.set("state", encodeState({ churchId, platform: "tiktok" }));
+  url.searchParams.set("state", state);
+  url.searchParams.set("disable_auto_auth", "1");
 
   return url.toString();
-}
-
-export function getTikTokStateChurchId(state: string | null, fallbackChurchId: string) {
-  const decoded = decodeState(state);
-  return decoded?.churchId || fallbackChurchId;
 }
 
 async function readTikTokResponse<T>(response: Response) {
