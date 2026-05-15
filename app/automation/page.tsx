@@ -10,7 +10,6 @@ import { SectionCard } from "@/components/layout/section-card";
 import { getPendingMetaPageSelections, isMetaConfigured, type PendingMetaPageSelection } from "@/lib/meta";
 import {
   cancelMetaSelectionAction,
-  createManualSocialPostAction,
   deleteSocialAccountAction,
   pauseYearImagesAction,
   pauseYearReelsAction,
@@ -411,7 +410,7 @@ export default async function AutomationPage(props: {
 
       <section className="two-column narrow-right">
         <SectionCard title="Post once">
-          <form className="form-grid simple-form" action={createManualSocialPostAction}>
+          <form className="form-grid simple-form" action="/api/automation/manual-post" method="POST" encType="multipart/form-data">
             <div className="stack">
               <p className="muted">Pick one or more destinations for this post.</p>
               {socialAccounts.length ? (
