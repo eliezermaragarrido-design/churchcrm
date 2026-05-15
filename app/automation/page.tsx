@@ -8,6 +8,7 @@ import { isYouTubeConfigured } from "@/lib/social/youtube";
 import { AppShell } from "@/components/layout/app-shell";
 import { SectionCard } from "@/components/layout/section-card";
 import { getPendingMetaPageSelections, isMetaConfigured, type PendingMetaPageSelection } from "@/lib/meta";
+import { ManualPostForm } from "./manual-post-form";
 import {
   cancelMetaSelectionAction,
   createManualSocialPostAction,
@@ -70,6 +71,30 @@ function getPostTypeLabel(postType: string) {
   return postType.replaceAll("_", " ");
 }
 
+function getManualStatusMessage(status: string | null, posted: string | null, failed: string | null) {
+  if (!status) {
+    return null;
+  }
+
+  if (status === "published") {
+    return `Publish attempted now. Posted: ${posted || "0"}. Failed: ${failed || "0"}.`;
+  }
+
+  if (status === "scheduled") {
+    return "Scheduled post created successfully.";
+  }
+
+  if (status === "missing-accounts") {
+    return "Select at least one connected account.";
+  }
+
+  if (status === "missing-content") {
+    return "Add a caption or upload a media file before submitting.";
+  }
+
+  return `Manual post error: ${status}`;
+}
+
 async function getVisibleSocialAccounts(churchId: string) {
   return prisma.socialAccount.findMany({
     where: { churchId },
@@ -86,6 +111,9 @@ export default async function AutomationPage(props: {
   const metaStatus = typeof resolvedSearchParams.meta === "string" ? resolvedSearchParams.meta : null;
   const tiktokStatus = typeof resolvedSearchParams.tiktok === "string" ? resolvedSearchParams.tiktok : null;
   const youtubeStatus = typeof resolvedSearchParams.youtube === "string" ? resolvedSearchParams.youtube : null;
+  const manualStatus = typeof resolvedSearchParams.manual === "string" ? resolvedSearchParams.manual : null;
+  const manualPosted = typeof resolvedSearchParams.posted === "string" ? resolvedSearchParams.posted : null;
+  const manualFailed = typeof resolvedSearchParams.failed === "string" ? resolvedSearchParams.failed : null;
 
   const rawPendingSelection = cookieStore.get(META_PENDING_COOKIE)?.value;
   let pendingSelections: PendingMetaPageSelection[] = [];
@@ -166,6 +194,7 @@ export default async function AutomationPage(props: {
       ? pendingSelections.filter((page) => page.instagram)
       : pendingSelections;
   const tiktokScopeString = getTikTokScopeString();
+  const manualStatusMessage = getManualStatusMessage(manualStatus, manualPosted, manualFailed);
 
   return (
     <AppShell
@@ -193,13 +222,14 @@ export default async function AutomationPage(props: {
         </SectionCard>
       </section>
 
-      {metaStatus || tiktokStatus || youtubeStatus ? (
+      {metaStatus || tiktokStatus || youtubeStatus || manualStatusMessage ? (
         <section>
           <SectionCard title="Connection status">
             <div className="list compact-list">
               {metaStatus ? <div className="list-item"><span>Meta</span><strong>{metaStatus}</strong></div> : null}
               {tiktokStatus ? <div className="list-item"><span>TikTok</span><strong>{tiktokStatus}</strong></div> : null}
               {youtubeStatus ? <div className="list-item"><span>YouTube</span><strong>{youtubeStatus}</strong></div> : null}
+              {manualStatusMessage ? <div className="list-item"><span>Manual post</span><strong>{manualStatusMessage}</strong></div> : null}
             </div>
           </SectionCard>
         </section>
@@ -382,68 +412,14 @@ export default async function AutomationPage(props: {
 
       <section className="two-column narrow-right">
         <SectionCard title="Post once">
-          <form className="form-grid simple-form" action={createManualSocialPostAction}>
-            <div className="stack">
-              <p className="muted">Pick one or more destinations for this post.</p>
-              {socialAccounts.length ? (
-                socialAccounts.map((account) => (
-                  <label key={`manual-${account.id}`} className="calendar-event">
-                    <input type="checkbox" name="accountIds" value={account.id} defaultChecked />
-                    {" "}
-                    <strong>{account.accountLabel}</strong>
-                    <div className="muted">{getPlatformLabel(account.platform)}</div>
-                  </label>
-                ))
-              ) : (
-                <div className="calendar-event">Add an account first.</div>
-              )}
-            </div>
-
-            <div className="stack">
-              <label>Type</label>
-              <select className="input" name="postType" defaultValue="FEED_POST">
-                <option value="FEED_POST">Feed post</option>
-                <option value="STORY">Story</option>
-                <option value="SHORT_VIDEO">Reel / short video</option>
-              </select>
-            </div>
-
-            <div className="stack">
-              <label>Caption</label>
-              <textarea
-                className="input"
-                name="caption"
-                rows={5}
-                placeholder="Write the post copy. You can also upload media and leave this blank if needed."
-              />
-            </div>
-
-            <div className="stack">
-              <label>Media file</label>
-              <input className="input" name="mediaFile" type="file" accept="image/*,video/*" />
-              <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
-            </div>
-
-            <div className="stack">
-              <label>Publish mode</label>
-              <select className="input" name="publishMode" defaultValue="NOW">
-                <option value="NOW">Publish as soon as possible</option>
-                <option value="SCHEDULE">Schedule for later</option>
-              </select>
-            </div>
-
-            <div className="stack">
-              <label>Scheduled date and time</label>
-              <input className="input" type="datetime-local" name="scheduledAt" />
-              <div className="muted">This is only used when publish mode is set to scheduled.</div>
-            </div>
-
-            <div className="toolbar toolbar-start">
-              <button className="button" type="submit">
-                Create post
-              </button>
-            </div>
-          </form>
+          <ManualPostForm
+            action={createManualSocialPostAction}
+            accounts={socialAccounts.map((account) => ({
+              id: account.id,
+              accountLabel: account.accountLabel,
+              platformLabel: getPlatformLabel(account.platform),
+            }))}
+          />
         </SectionCard>
 
         <SectionCard title="Queue">

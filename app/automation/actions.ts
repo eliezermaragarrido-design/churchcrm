@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -514,42 +515,69 @@ export async function pauseYearReelsAction(formData: FormData) {
 }
 
 export async function createManualSocialPostAction(formData: FormData) {
-  const auth = await requireAuthContext();
-  const selectedAccountIds = getSelectedAccountIds(formData);
-  const postType = getSelectedPostType(formData);
-  const caption = String(formData.get("caption") || "").trim();
-  const publishMode = String(formData.get("publishMode") || "NOW").trim();
-  const scheduledAtRaw = String(formData.get("scheduledAt") || "").trim();
-  const mediaFile = formData.get("mediaFile");
+  try {
+    const auth = await requireAuthContext();
+    const selectedAccountIds = getSelectedAccountIds(formData);
+    const postType = getSelectedPostType(formData);
+    const caption = String(formData.get("caption") || "").trim();
+    const publishMode = String(formData.get("publishMode") || "NOW").trim();
+    const scheduledAtRaw = String(formData.get("scheduledAt") || "").trim();
+    const mediaFile = formData.get("mediaFile");
 
-  const scheduledFor =
-    publishMode === "SCHEDULE" && scheduledAtRaw
-      ? new Date(scheduledAtRaw)
-      : new Date();
+    const scheduledFor =
+      publishMode === "SCHEDULE" && scheduledAtRaw
+        ? new Date(scheduledAtRaw)
+        : new Date();
 
-  if (!selectedAccountIds.length || (!caption && !(mediaFile instanceof File && mediaFile.size))) {
-    return;
+    if (!selectedAccountIds.length) {
+      redirect("/automation?manual=missing-accounts");
+    }
+
+    if (!caption && !(mediaFile instanceof File && mediaFile.size)) {
+      redirect("/automation?manual=missing-content");
+    }
+
+    const manualAsset =
+      mediaFile instanceof File && mediaFile.size
+        ? await uploadManualAsset({
+            churchId: auth.churchId,
+            file: mediaFile,
+            postType,
+          })
+        : null;
+
+    await createManualQueuedPosts({
+      churchId: auth.churchId,
+      selectedAccountIds,
+      caption,
+      postType,
+      scheduledFor,
+      assetId: manualAsset?.id,
+    });
+
+    if (publishMode === "NOW") {
+      const result = await processDueSocialPosts();
+      revalidatePath("/automation");
+      redirect(`/automation?manual=published&posted=${result.posted}&failed=${result.failed}`);
+    }
+
+    revalidatePath("/automation");
+    redirect("/automation?manual=scheduled");
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "digest" in error &&
+      typeof error.digest === "string" &&
+      error.digest.includes("NEXT_REDIRECT")
+    ) {
+      throw error;
+    }
+
+    const message = error instanceof Error ? error.message : "manual-post-failed";
+
+    redirect(`/automation?manual=${encodeURIComponent(message)}`);
   }
-
-  const manualAsset =
-    mediaFile instanceof File && mediaFile.size
-      ? await uploadManualAsset({
-          churchId: auth.churchId,
-          file: mediaFile,
-          postType,
-        })
-      : null;
-
-  await createManualQueuedPosts({
-    churchId: auth.churchId,
-    selectedAccountIds,
-    caption,
-    postType,
-    scheduledFor,
-    assetId: manualAsset?.id,
-  });
-
-  revalidatePath("/automation");
 }
 
 export async function publishDueSocialPostsAction() {
