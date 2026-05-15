@@ -8,7 +8,6 @@ import { isYouTubeConfigured } from "@/lib/social/youtube";
 import { AppShell } from "@/components/layout/app-shell";
 import { SectionCard } from "@/components/layout/section-card";
 import { getPendingMetaPageSelections, isMetaConfigured, type PendingMetaPageSelection } from "@/lib/meta";
-import { ManualPostForm } from "./manual-post-form";
 import {
   cancelMetaSelectionAction,
   createManualSocialPostAction,
@@ -412,14 +411,63 @@ export default async function AutomationPage(props: {
 
       <section className="two-column narrow-right">
         <SectionCard title="Post once">
-          <ManualPostForm
-            action={createManualSocialPostAction}
-            accounts={socialAccounts.map((account) => ({
-              id: account.id,
-              accountLabel: account.accountLabel,
-              platformLabel: getPlatformLabel(account.platform),
-            }))}
-          />
+          <form className="form-grid simple-form" action={createManualSocialPostAction}>
+            <div className="stack">
+              <p className="muted">Pick one or more destinations for this post.</p>
+              {socialAccounts.length ? (
+                socialAccounts.map((account) => (
+                  <label key={`manual-${account.id}`} className="calendar-event">
+                    <input type="checkbox" name="accountIds" value={account.id} defaultChecked />
+                    {" "}
+                    <strong>{account.accountLabel}</strong>
+                    <div className="muted">{getPlatformLabel(account.platform)}</div>
+                  </label>
+                ))
+              ) : (
+                <div className="calendar-event">Add an account first.</div>
+              )}
+            </div>
+
+            <div className="stack">
+              <label>Type</label>
+              <select className="input" name="postType" defaultValue="FEED_POST">
+                <option value="FEED_POST">Feed post</option>
+                <option value="STORY">Story</option>
+                <option value="SHORT_VIDEO">Reel / short video</option>
+              </select>
+            </div>
+
+            <div className="stack">
+              <label>Caption</label>
+              <textarea
+                className="input"
+                name="caption"
+                rows={5}
+                placeholder="Write the post copy. You can also upload media and leave this blank if needed."
+              />
+            </div>
+
+            <div className="stack">
+              <label>Media file</label>
+              <input className="input" name="mediaFile" type="file" accept="image/*,video/*" />
+              <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
+            </div>
+
+            <div className="stack">
+              <label>Scheduled date and time</label>
+              <input className="input" type="datetime-local" name="scheduledAt" />
+              <div className="muted">Use this only when you want to create a scheduled post.</div>
+            </div>
+
+            <div className="toolbar toolbar-start wrap-toolbar">
+              <button className="button" type="submit" name="submitMode" value="NOW">
+                Publish now
+              </button>
+              <button className="button secondary" type="submit" name="submitMode" value="SCHEDULE">
+                Create scheduled post
+              </button>
+            </div>
+          </form>
         </SectionCard>
 
         <SectionCard title="Queue">

@@ -520,7 +520,7 @@ export async function createManualSocialPostAction(formData: FormData) {
     const selectedAccountIds = getSelectedAccountIds(formData);
     const postType = getSelectedPostType(formData);
     const caption = String(formData.get("caption") || "").trim();
-    const publishMode = String(formData.get("publishMode") || "NOW").trim();
+    const publishMode = String(formData.get("publishMode") || formData.get("submitMode") || "NOW").trim();
     const scheduledAtRaw = String(formData.get("scheduledAt") || "").trim();
     const mediaFile = formData.get("mediaFile");
 
