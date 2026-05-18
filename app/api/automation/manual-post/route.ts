@@ -103,6 +103,15 @@ function getRedirectUrl(origin: string, params: Record<string, string>) {
   return url;
 }
 
+function seeOther(url: URL) {
+  return NextResponse.redirect(url, 303);
+}
+
+export async function GET(request: Request) {
+  const origin = new URL(request.url).origin;
+  return seeOther(getRedirectUrl(origin, {}));
+}
+
 export async function POST(request: Request) {
   const origin = new URL(request.url).origin;
 
@@ -117,11 +126,11 @@ export async function POST(request: Request) {
     const mediaFile = formData.get("mediaFile");
 
     if (!selectedAccountIds.length) {
-      return NextResponse.redirect(getRedirectUrl(origin, { manual: "missing-accounts" }));
+      return seeOther(getRedirectUrl(origin, { manual: "missing-accounts" }));
     }
 
     if (!caption && !(mediaFile instanceof File && mediaFile.size)) {
-      return NextResponse.redirect(getRedirectUrl(origin, { manual: "missing-content" }));
+      return seeOther(getRedirectUrl(origin, { manual: "missing-content" }));
     }
 
     const scheduledFor =
@@ -150,7 +159,7 @@ export async function POST(request: Request) {
     if (publishMode === "NOW") {
       const result = await processDueSocialPosts();
       revalidatePath("/automation");
-      return NextResponse.redirect(
+      return seeOther(
         getRedirectUrl(origin, {
           manual: "published",
           posted: String(result.posted),
@@ -160,9 +169,9 @@ export async function POST(request: Request) {
     }
 
     revalidatePath("/automation");
-    return NextResponse.redirect(getRedirectUrl(origin, { manual: "scheduled" }));
+    return seeOther(getRedirectUrl(origin, { manual: "scheduled" }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "manual-post-failed";
-    return NextResponse.redirect(getRedirectUrl(origin, { manual: message }));
+    return seeOther(getRedirectUrl(origin, { manual: message }));
   }
 }
