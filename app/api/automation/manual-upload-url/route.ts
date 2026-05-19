@@ -41,6 +41,7 @@ export async function POST(request: Request) {
       bucketName,
       objectPath,
       token: signed.data.token,
+      signedUploadUrl: signed.data.signedUrl,
       publicUrl,
       assetType: getAssetType(postType),
       contentType: String(body.contentType || "").trim() || null,

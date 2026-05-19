@@ -1,6 +1,4 @@
 "use client";
-
-import { createClient } from "@supabase/supabase-js";
 import { useState } from "react";
 
 const MAX_MANUAL_UPLOAD_BYTES = 4_000_000;
@@ -16,9 +14,6 @@ export function ManualPostClientForm(props: {
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -36,10 +31,6 @@ export function ManualPostClientForm(props: {
       }
 
       if (selectedFile instanceof File && selectedFile.size) {
-        if (!supabaseUrl || !supabaseAnonKey) {
-          throw new Error("Supabase browser upload is not configured.");
-        }
-
         if (selectedFile.size > MAX_MANUAL_UPLOAD_BYTES) {
           const uploadInfoResponse = await fetch("/api/automation/manual-upload-url", {
             method: "POST",
@@ -58,28 +49,27 @@ export function ManualPostClientForm(props: {
           }
 
           const uploadInfo = (await uploadInfoResponse.json()) as {
-            bucketName?: string;
-            objectPath?: string;
-            token?: string;
+            signedUploadUrl?: string;
             publicUrl?: string;
           };
 
-          if (!uploadInfo.bucketName || !uploadInfo.objectPath || !uploadInfo.token || !uploadInfo.publicUrl) {
+          if (!uploadInfo.signedUploadUrl || !uploadInfo.publicUrl) {
             throw new Error("Supabase upload preparation returned incomplete data.");
           }
 
-          const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-            auth: { persistSession: false },
+          const uploadResult = await fetch(uploadInfo.signedUploadUrl, {
+            method: "PUT",
+            headers: selectedFile.type
+              ? {
+                  "Content-Type": selectedFile.type,
+                }
+              : undefined,
+            body: selectedFile,
           });
-          const uploadResult = await supabase.storage
-            .from(uploadInfo.bucketName)
-            .uploadToSignedUrl(uploadInfo.objectPath, uploadInfo.token, selectedFile, {
-              contentType: selectedFile.type || undefined,
-              upsert: false,
-            });
 
-          if (uploadResult.error) {
-            throw new Error(uploadResult.error.message || "Supabase direct upload failed.");
+          if (!uploadResult.ok) {
+            const errorText = await uploadResult.text();
+            throw new Error(errorText || `Supabase direct upload failed with status ${uploadResult.status}.`);
           }
 
           formData.delete("mediaFile");
