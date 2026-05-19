@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+const MAX_MANUAL_UPLOAD_BYTES = 4_000_000;
+
 type ManualAccount = {
   id: string;
   accountLabel: string;
@@ -22,9 +24,16 @@ export function ManualPostClientForm(props: {
     try {
       const formData = new FormData(event.currentTarget);
       const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+      const selectedFile = formData.get("mediaFile");
 
       if (submitter?.value) {
         formData.set("submitMode", submitter.value);
+      }
+
+      if (selectedFile instanceof File && selectedFile.size > MAX_MANUAL_UPLOAD_BYTES) {
+        throw new Error(
+          "This upload is too large for the current Vercel function path. Keep manual uploads under about 4 MB, or use the scheduled Supabase asset flow for larger videos.",
+        );
       }
 
       const response = await fetch("/api/automation/manual-post", {
@@ -85,6 +94,7 @@ export function ManualPostClientForm(props: {
         <label>Media file</label>
         <input className="input" name="mediaFile" type="file" accept="image/*,video/*" />
         <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
+        <div className="muted">Manual uploads must stay under about 4 MB on Vercel. Larger videos need the Supabase asset flow instead of direct browser-to-function upload.</div>
       </div>
 
       <div className="stack">
