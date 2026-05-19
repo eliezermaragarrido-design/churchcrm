@@ -1,5 +1,6 @@
 "use client";
 
+import { createClient } from "@supabase/supabase-js";
 import { useState } from "react";
 
 const MAX_MANUAL_UPLOAD_BYTES = 4_000_000;
@@ -16,6 +17,9 @@ export function ManualPostClientForm(props: {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
@@ -25,15 +29,65 @@ export function ManualPostClientForm(props: {
       const formData = new FormData(event.currentTarget);
       const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
       const selectedFile = formData.get("mediaFile");
+      const postType = String(formData.get("postType") || "FEED_POST").trim();
 
       if (submitter?.value) {
         formData.set("submitMode", submitter.value);
       }
 
-      if (selectedFile instanceof File && selectedFile.size > MAX_MANUAL_UPLOAD_BYTES) {
-        throw new Error(
-          "This upload is too large for the current Vercel function path. Keep manual uploads under about 4 MB, or use the scheduled Supabase asset flow for larger videos.",
-        );
+      if (selectedFile instanceof File && selectedFile.size) {
+        if (!supabaseUrl || !supabaseAnonKey) {
+          throw new Error("Supabase browser upload is not configured.");
+        }
+
+        if (selectedFile.size > MAX_MANUAL_UPLOAD_BYTES) {
+          const uploadInfoResponse = await fetch("/api/automation/manual-upload-url", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              postType,
+              fileName: selectedFile.name,
+              contentType: selectedFile.type,
+            }),
+          });
+
+          if (!uploadInfoResponse.ok) {
+            throw new Error("Could not prepare a direct Supabase upload for this media file.");
+          }
+
+          const uploadInfo = (await uploadInfoResponse.json()) as {
+            bucketName?: string;
+            objectPath?: string;
+            token?: string;
+            publicUrl?: string;
+          };
+
+          if (!uploadInfo.bucketName || !uploadInfo.objectPath || !uploadInfo.token || !uploadInfo.publicUrl) {
+            throw new Error("Supabase upload preparation returned incomplete data.");
+          }
+
+          const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+            auth: { persistSession: false },
+          });
+          const uploadResult = await supabase.storage
+            .from(uploadInfo.bucketName)
+            .uploadToSignedUrl(uploadInfo.objectPath, uploadInfo.token, selectedFile, {
+              contentType: selectedFile.type || undefined,
+              upsert: false,
+            });
+
+          if (uploadResult.error) {
+            throw new Error(uploadResult.error.message || "Supabase direct upload failed.");
+          }
+
+          formData.delete("mediaFile");
+          formData.set("uploadedAssetUrl", uploadInfo.publicUrl);
+          formData.set("uploadedAssetTitle", selectedFile.name || "Manual upload");
+        } else {
+          formData.set("uploadedAssetTitle", selectedFile.name || "Manual upload");
+        }
       }
 
       const response = await fetch("/api/automation/manual-post", {

@@ -93,6 +93,24 @@ async function uploadManualAsset(input: {
   });
 }
 
+async function createUploadedAssetRecord(input: {
+  churchId: string;
+  fileUrl: string;
+  fileName: string;
+  postType: SocialPostType;
+}) {
+  const assetType: ContentAssetType = input.postType === "SHORT_VIDEO" ? "DEVOTIONAL_VIDEO" : "DAILY_IMAGE";
+
+  return prisma.contentAsset.create({
+    data: {
+      churchId: input.churchId,
+      assetType,
+      title: input.fileName || "Manual upload",
+      fileUrl: input.fileUrl,
+    },
+  });
+}
+
 function getRedirectUrl(origin: string, params: Record<string, string>) {
   const url = new URL("/automation", origin);
 
@@ -124,12 +142,14 @@ export async function POST(request: Request) {
     const publishMode = String(formData.get("publishMode") || formData.get("submitMode") || "NOW").trim();
     const scheduledAtRaw = String(formData.get("scheduledAt") || "").trim();
     const mediaFile = formData.get("mediaFile");
+    const uploadedAssetUrl = String(formData.get("uploadedAssetUrl") || "").trim();
+    const uploadedAssetTitle = String(formData.get("uploadedAssetTitle") || "").trim();
 
     if (!selectedAccountIds.length) {
       return seeOther(getRedirectUrl(origin, { manual: "missing-accounts" }));
     }
 
-    if (!caption && !(mediaFile instanceof File && mediaFile.size)) {
+    if (!caption && !(mediaFile instanceof File && mediaFile.size) && !uploadedAssetUrl) {
       return seeOther(getRedirectUrl(origin, { manual: "missing-content" }));
     }
 
@@ -138,8 +158,14 @@ export async function POST(request: Request) {
         ? new Date(scheduledAtRaw)
         : new Date();
 
-    const manualAsset =
-      mediaFile instanceof File && mediaFile.size
+    const manualAsset = uploadedAssetUrl
+      ? await createUploadedAssetRecord({
+          churchId: auth.churchId,
+          fileUrl: uploadedAssetUrl,
+          fileName: uploadedAssetTitle || "Manual upload",
+          postType,
+        })
+      : mediaFile instanceof File && mediaFile.size
         ? await uploadManualAsset({
             churchId: auth.churchId,
             file: mediaFile,
