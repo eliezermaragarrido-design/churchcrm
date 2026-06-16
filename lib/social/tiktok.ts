@@ -4,10 +4,6 @@ const TIKTOK_OAUTH_BASE = "https://www.tiktok.com/v2/auth/authorize/";
 const TIKTOK_API_BASE = "https://open.tiktokapis.com";
 
 function getTikTokScopes() {
-  if (env.TIKTOK_USE_SANDBOX) {
-    return ["user.info.basic"].join(",");
-  }
-
   return ["user.info.basic", "video.publish", "video.upload"].join(",");
 }
 
