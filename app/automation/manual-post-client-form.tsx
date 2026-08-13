@@ -221,15 +221,20 @@ export function ManualPostClientForm(props: {
           name="mediaFile"
           type="file"
           accept="image/*,video/*"
-          disabled={postType === "SHORT_VIDEO"}
-          onChange={() => setSubmitError(null)}
+          disabled={postType === "SHORT_VIDEO" && Boolean(selectedReelUrl)}
+          onChange={(event) => {
+            setSubmitError(null);
+
+            if (postType === "SHORT_VIDEO" && event.currentTarget.files?.length) {
+              setSelectedReelUrl("");
+            }
+          }}
         />
         <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
         {postType === "SHORT_VIDEO" ? (
           <div className="muted">
-            Local video uploads are turned off in this form. For reels and TikTok/YouTube tests, first upload the video into the
-            Supabase <strong>REELS</strong> bucket, then choose it below. This keeps manual posting aligned with the daily automation
-            flow and avoids request-size failures.
+            If you choose a video from your PC, the CRM will upload it into the Supabase <strong>REELS</strong> bucket first and then
+            publish from there. That keeps TikTok, YouTube, and the daily automation flow using the same storage path.
           </div>
         ) : (
           <>
@@ -263,7 +268,7 @@ export function ManualPostClientForm(props: {
           </select>
           <div className="muted">Use this when you want to test TikTok or YouTube with a reel that is already stored in Supabase.</div>
           {selectedReelUrl ? (
-            <div className="muted">Using a Supabase reel now. This is the same storage path the daily autopost plan uses.</div>
+            <div className="muted">Using a Supabase reel now. The local file input is turned off so the form does not try to use both sources at the same time.</div>
           ) : null}
         </div>
       ) : null}
