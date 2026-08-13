@@ -183,6 +183,16 @@ async function uploadTikTokVideoChunks(uploadUrl: string, mediaBuffer: Buffer, m
   }
 }
 
+function normalizeTikTokPublishError(message: string) {
+  const normalized = message.trim().toLowerCase();
+
+  if (normalized.includes("content-sharing-guidelines")) {
+    return "TikTok blocked this post under its content-sharing guidelines. While the app is still unaudited, the connected TikTok account must be private at posting time and posts can only publish as SELF_ONLY.";
+  }
+
+  return message;
+}
+
 async function updatePostFailure(postId: string, error: unknown) {
   const message = error instanceof Error ? error.message : "Unknown social publishing error";
 
@@ -485,7 +495,7 @@ async function publishTikTokPost(post: SocialPostWithRelations) {
     };
 
     if (!response.ok || data.error?.code !== "ok" || !data.data?.upload_url) {
-      throw new Error(data.error?.message || "TikTok video publishing failed.");
+      throw new Error(normalizeTikTokPublishError(data.error?.message || "TikTok video publishing failed."));
     }
 
     await uploadTikTokVideoChunks(data.data.upload_url, mediaBuffer, mimeType);
@@ -523,7 +533,7 @@ async function publishTikTokPost(post: SocialPostWithRelations) {
   };
 
   if (!response.ok || data.error?.code !== "ok") {
-    throw new Error(data.error?.message || "TikTok photo publishing failed.");
+    throw new Error(normalizeTikTokPublishError(data.error?.message || "TikTok photo publishing failed."));
   }
 
   return data.data?.publish_id || null;
