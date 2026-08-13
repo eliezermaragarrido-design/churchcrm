@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import * as tus from "tus-js-client";
 
 const MAX_MANUAL_UPLOAD_BYTES = 4_000_000;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
 type ManualAccount = {
   id: string;
@@ -54,6 +55,8 @@ async function uploadFileToSupabaseResumable(input: {
       endpoint: resumableUploadUrl,
       retryDelays: [0, 3000, 5000, 10000, 20000],
       headers: {
+        authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        apikey: SUPABASE_ANON_KEY,
         "x-upsert": "false",
         "x-signature": token,
       },
