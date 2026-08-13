@@ -60,7 +60,7 @@ async function uploadFileToSupabaseResumable(input: {
         "x-upsert": "false",
         "x-signature": token,
       },
-      uploadDataDuringCreation: true,
+      uploadDataDuringCreation: false,
       removeFingerprintOnSuccess: true,
       chunkSize: 6 * 1024 * 1024,
       metadata: {
