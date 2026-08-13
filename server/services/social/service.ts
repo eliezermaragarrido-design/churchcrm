@@ -1,5 +1,6 @@
 import type { Church, ContentAsset, SocialAccount, SocialPost } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { env } from "@/lib/env";
 import { refreshTikTokAccessToken, queryTikTokCreatorInfo } from "@/lib/social/tiktok";
 import { refreshYouTubeAccessToken } from "@/lib/social/youtube";
 
@@ -439,8 +440,12 @@ async function publishTikTokPost(post: SocialPostWithRelations) {
   const accessToken = await ensureTikTokAccessToken(account);
   const creatorInfo = await queryTikTokCreatorInfo(accessToken);
   const privacyOptions = creatorInfo.data?.privacy_level_options || [];
+  const sandboxPreferredPrivacyLevel = privacyOptions.find((option) => option === "SELF_ONLY");
+  const publicPreferredPrivacyLevel = privacyOptions.find((option) => option === "PUBLIC_TO_EVERYONE");
   const privacyLevel =
-    privacyOptions.find((option) => option === "PUBLIC_TO_EVERYONE") ||
+    (env.TIKTOK_USE_SANDBOX ? sandboxPreferredPrivacyLevel : publicPreferredPrivacyLevel) ||
+    sandboxPreferredPrivacyLevel ||
+    publicPreferredPrivacyLevel ||
     privacyOptions[0] ||
     "SELF_ONLY";
 
