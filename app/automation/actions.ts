@@ -3,12 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { listMatchingBucketFiles, parseBucketSequenceNumber } from "@/lib/automation/buckets";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getPendingMetaPageSelections, saveSelectedMetaPages } from "@/lib/meta";
 import { processDueSocialPosts } from "@/server/services/social/service";
 import type { ContentAssetType, SocialPlatform, SocialPostStatus, SocialPostType } from "@prisma/client";
+
+const DEFAULT_AUTOMATION_CAPTION_TEXT = "\u{1F64F}\u{1F3FC}\u{1F64C}\u{1F3FD}";
 
 const META_PENDING_COOKIE = "meta_pending_pages";
 
@@ -77,8 +80,30 @@ function getAllowedPostTypes(platform: SocialPlatform) {
   };
 }
 
+function getChicagoUtcOffsetMinutes(date: Date) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    timeZoneName: "shortOffset",
+  });
+  const timeZonePart = formatter.formatToParts(date).find((part) => part.type === "timeZoneName")?.value || "GMT";
+  const match = timeZonePart.match(/^GMT(?:(\+|-)(\d{1,2})(?::?(\d{2}))?)?$/);
+
+  if (!match) {
+    return -300;
+  }
+
+  const sign = match[1] === "-" ? -1 : 1;
+  const hoursOffset = Number(match[2] || "0");
+  const minutesOffset = Number(match[3] || "0");
+
+  return sign * (hoursOffset * 60 + minutesOffset);
+}
+
 function getScheduledDateForSequence(year: number, sequenceNumber: number, hours: number, minutes: number) {
-  return new Date(Date.UTC(year, 0, sequenceNumber, hours + 5, minutes, 0));
+  const probeDate = new Date(Date.UTC(year, 0, sequenceNumber, 12, 0, 0));
+  const offsetMinutes = getChicagoUtcOffsetMinutes(probeDate);
+
+  return new Date(Date.UTC(year, 0, sequenceNumber, hours, minutes, 0) - offsetMinutes * 60_000);
 }
 
 async function createQueuedPost(input: {
@@ -101,7 +126,19 @@ async function createQueuedPost(input: {
   });
 
   if (existing) {
-    return existing;
+    if (existing.status === "POSTED") {
+      return existing;
+    }
+
+    return prisma.socialPost.update({
+      where: { id: existing.id },
+      data: {
+        title: input.title,
+        caption: input.caption,
+        scheduledFor: input.scheduledFor,
+        status: input.scheduledFor <= new Date() ? "READY" : "SCHEDULED",
+      },
+    });
   }
 
   return prisma.socialPost.create({
@@ -240,7 +277,7 @@ async function scheduleAnnualPlan(input: {
           input.postType === "FEED_POST"
             ? `Day ${asset.sequenceNumber} image post`
             : `Day ${asset.sequenceNumber} reel post`,
-        caption: asset.body || asset.scriptureRef || asset.title,
+        caption: DEFAULT_AUTOMATION_CAPTION_TEXT,
         postType: input.postType,
         scheduledFor: getScheduledDateForSequence(input.year, asset.sequenceNumber, input.hours, input.minutes),
       });
@@ -256,27 +293,11 @@ async function syncBucketAssets(input: {
   pattern: RegExp;
 }) {
   const supabase = createSupabaseAdminClient();
-  const { data, error } = await supabase.storage.from(input.bucketName).list("", {
-    limit: 500,
-    sortBy: { column: "name", order: "asc" },
-  });
-
-  if (error || !data) {
-    throw new Error(error?.message || `Could not read the ${input.bucketName} bucket.`);
-  }
-
-  const files = data.map((entry) => entry.name).filter((name) => input.pattern.test(name));
+  const files = await listMatchingBucketFiles(input.bucketName, input.pattern);
 
   for (const fileName of files) {
-    const match = fileName.match(/^(\d{1,3})\./i);
-
-    if (!match) {
-      continue;
-    }
-
-    const sequenceNumber = Number(match[1]);
-
-    if (!sequenceNumber || sequenceNumber > 366) {
+    const sequenceNumber = parseBucketSequenceNumber(fileName);
+    if (!sequenceNumber) {
       continue;
     }
 
@@ -415,10 +436,10 @@ export async function cancelMetaSelectionAction() {
 export async function scheduleYearImagesAction(formData: FormData) {
   const auth = await requireAuthContext();
   const selectedAccountIds = getSelectedAccountIds(formData);
-  const { hours, minutes } = getTimeParts(formData, "imageTime");
+  const { hours, minutes } = getTimeParts(formData, "autopostTime");
 
   if (!selectedAccountIds.length) {
-    return;
+    return "missing-accounts";
   }
 
   const { year, dayOfYear } = getChicagoYearDayInfo();
@@ -443,15 +464,16 @@ export async function scheduleYearImagesAction(formData: FormData) {
   });
 
   revalidatePath("/automation");
+  return "images-queued";
 }
 
 export async function scheduleYearReelsAction(formData: FormData) {
   const auth = await requireAuthContext();
   const selectedAccountIds = getSelectedAccountIds(formData);
-  const { hours, minutes } = getTimeParts(formData, "reelTime");
+  const { hours, minutes } = getTimeParts(formData, "autopostTime");
 
   if (!selectedAccountIds.length) {
-    return;
+    return "missing-accounts";
   }
 
   const { year, dayOfYear } = getChicagoYearDayInfo();
@@ -476,6 +498,7 @@ export async function scheduleYearReelsAction(formData: FormData) {
   });
 
   revalidatePath("/automation");
+  return "reels-queued";
 }
 
 export async function pauseYearImagesAction(formData: FormData) {
@@ -483,7 +506,7 @@ export async function pauseYearImagesAction(formData: FormData) {
   const selectedAccountIds = getSelectedAccountIds(formData);
 
   if (!selectedAccountIds.length) {
-    return;
+    return "missing-accounts";
   }
 
   await pauseAnnualPlan({
@@ -494,6 +517,7 @@ export async function pauseYearImagesAction(formData: FormData) {
   });
 
   revalidatePath("/automation");
+  return "images-paused";
 }
 
 export async function pauseYearReelsAction(formData: FormData) {
@@ -501,7 +525,7 @@ export async function pauseYearReelsAction(formData: FormData) {
   const selectedAccountIds = getSelectedAccountIds(formData);
 
   if (!selectedAccountIds.length) {
-    return;
+    return "missing-accounts";
   }
 
   await pauseAnnualPlan({
@@ -512,6 +536,7 @@ export async function pauseYearReelsAction(formData: FormData) {
   });
 
   revalidatePath("/automation");
+  return "reels-paused";
 }
 
 export async function createManualSocialPostAction(formData: FormData) {

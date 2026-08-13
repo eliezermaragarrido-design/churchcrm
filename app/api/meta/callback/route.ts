@@ -20,6 +20,11 @@ export async function GET(request: Request) {
 
   try {
     const result = await fetchMetaPagesFromCode(code, state, env.DEFAULT_CHURCH_ID);
+
+    if (!result.pageCount) {
+      return NextResponse.redirect(new URL("/automation?meta=no-pages-returned", url.origin));
+    }
+
     const response = NextResponse.redirect(new URL("/automation?meta=select-pages", url.origin));
     response.cookies.set(
       META_PENDING_COOKIE,

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { listMatchingBucketFiles } from "@/lib/automation/buckets";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { env } from "@/lib/env";
@@ -18,6 +19,7 @@ import {
   scheduleYearImagesAction,
   scheduleYearReelsAction,
 } from "./actions";
+import { AutoPostPlanForm } from "./autopost-plan-form";
 import { ManualPostClientForm } from "./manual-post-client-form";
 
 const META_PENDING_COOKIE = "meta_pending_pages";
@@ -70,6 +72,62 @@ function getPostTypeLabel(postType: string) {
   return postType.replaceAll("_", " ");
 }
 
+function isGeneratedAutomationLabel(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /^daily (image|reel)\s+\d{1,3}$/.test(normalized) ||
+    /^day \d{1,3} (image|reel) post$/.test(normalized)
+  );
+}
+
+function getQueuePreview(post: {
+  title: string | null;
+  caption: string | null;
+  asset: { title: string | null } | null;
+}) {
+  const caption = String(post.caption || "").trim();
+  const title = String(post.title || "").trim();
+  const assetTitle = String(post.asset?.title || "").trim();
+
+  return (
+    (!isGeneratedAutomationLabel(caption) ? caption : "") ||
+    (!isGeneratedAutomationLabel(title) ? title : "") ||
+    (!isGeneratedAutomationLabel(assetTitle) ? assetTitle : "") ||
+    "🙏🙌"
+  );
+}
+
+function formatAutomationDate(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    month: "numeric",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+}
+
+function getQueueDisplayText(post: {
+  title: string | null;
+  caption: string | null;
+  asset: { title: string | null } | null;
+}) {
+  const preview = getQueuePreview(post);
+
+  if (preview.includes("ðŸ")) {
+    return "\u{1F64F}\u{1F3FC}\u{1F64C}\u{1F3FD}";
+  }
+
+  return preview;
+}
+
 function getManualStatusMessage(status: string | null, posted: string | null, failed: string | null) {
   if (!status) {
     return null;
@@ -94,6 +152,26 @@ function getManualStatusMessage(status: string | null, posted: string | null, fa
   return `Manual post error: ${status}`;
 }
 
+function getAutoplanStatusMessage(status: string | null) {
+  if (status === "images-queued") {
+    return "The daily image plan was queued successfully.";
+  }
+
+  if (status === "reels-queued") {
+    return "The daily reel plan was queued successfully.";
+  }
+
+  if (status === "images-paused") {
+    return "The daily image plan was paused successfully.";
+  }
+
+  if (status === "reels-paused") {
+    return "The daily reel plan was paused successfully.";
+  }
+
+  return null;
+}
+
 async function getVisibleSocialAccounts(churchId: string) {
   return prisma.socialAccount.findMany({
     where: { churchId },
@@ -113,6 +191,7 @@ export default async function AutomationPage(props: {
   const manualStatus = typeof resolvedSearchParams.manual === "string" ? resolvedSearchParams.manual : null;
   const manualPosted = typeof resolvedSearchParams.posted === "string" ? resolvedSearchParams.posted : null;
   const manualFailed = typeof resolvedSearchParams.failed === "string" ? resolvedSearchParams.failed : null;
+  const autoplanStatus = typeof resolvedSearchParams.autoplan === "string" ? resolvedSearchParams.autoplan : null;
 
   const rawPendingSelection = cookieStore.get(META_PENDING_COOKIE)?.value;
   let pendingSelections: PendingMetaPageSelection[] = [];
@@ -133,7 +212,7 @@ export default async function AutomationPage(props: {
   }
 
   const socialAccounts = await getVisibleSocialAccounts(auth.churchId);
-  const [imageAssetCount, reelAssetCount, socialPostStats] = await Promise.all([
+  const [dbImageAssetCount, dbReelAssetCount, socialPostStats] = await Promise.all([
     prisma.contentAsset.count({
       where: {
         churchId: auth.churchId,
@@ -156,6 +235,22 @@ export default async function AutomationPage(props: {
       },
     }),
   ]);
+
+  let imageAssetCount = dbImageAssetCount;
+  let reelAssetCount = dbReelAssetCount;
+
+  try {
+    const [imageBucketFiles, reelBucketFiles] = await Promise.all([
+      listMatchingBucketFiles("IMAGES", /^\d{1,3}\.(jpg|jpeg|png|webp)$/i),
+      listMatchingBucketFiles("REELS", /^\d{1,3}\.mp4$/i),
+    ]);
+
+    imageAssetCount = imageBucketFiles.length;
+    reelAssetCount = reelBucketFiles.length;
+  } catch {
+    imageAssetCount = dbImageAssetCount;
+    reelAssetCount = dbReelAssetCount;
+  }
 
   const statsByStatus = {
     ready: socialPostStats.find((item) => item.status === "READY")?._count._all ?? 0,
@@ -194,6 +289,7 @@ export default async function AutomationPage(props: {
       : pendingSelections;
   const tiktokScopeString = getTikTokScopeString();
   const manualStatusMessage = getManualStatusMessage(manualStatus, manualPosted, manualFailed);
+  const autoplanStatusMessage = getAutoplanStatusMessage(autoplanStatus);
 
   return (
     <AppShell
@@ -301,6 +397,10 @@ export default async function AutomationPage(props: {
                 If Meta keeps reopening the same Facebook login, try the connect button in an incognito window or after logging out
                 of Facebook first, then choose the other account.
               </div>
+              <div className="muted">
+                Example: if you already connected your personal Facebook user, open a private window, sign in with the separate
+                Facebook user that owns the church pages, then connect Facebook again and import those pages too.
+              </div>
             </div>
             <div className="toolbar toolbar-start wrap-toolbar">
               {isMetaConfigured() ? (
@@ -337,14 +437,19 @@ export default async function AutomationPage(props: {
                 </button>
               )}
             </div>
-            <div className="muted">YouTube automation is used for videos only. TikTok can publish both image posts and reels from public Supabase URLs.</div>
             <div className="muted">
-              Missing right now in `.env`: TikTok client key/secret/redirect URI, Google client id/secret/redirect URI, and `CRON_SECRET`.
+              YouTube automation is for short videos only. In this CRM flow, TikTok is also treated as a short-video destination so
+              the manual post form and the daily reel plan stay aligned with what is actually supported today.
             </div>
+            {!isYouTubeConfigured() ? (
+              <div className="muted">
+                YouTube is currently unavailable because the Google OAuth environment variables are still missing in this deployment.
+              </div>
+            ) : null}
             {env.TIKTOK_USE_SANDBOX ? (
               <div className="muted">
-                TikTok sandbox mode is enabled. The CRM will request only `user.info.basic` so we can verify account connection first.
-                Public posting scopes are deferred until production review is approved.
+                TikTok sandbox mode is enabled. Login works in sandbox, but live publishing still depends on the TikTok app approval
+                level and the connected account permissions.
               </div>
             ) : null}
             <div className="calendar-event">
@@ -352,6 +457,7 @@ export default async function AutomationPage(props: {
               <div className="muted">Client key: {maskSecret(env.TIKTOK_CLIENT_KEY)}</div>
               <div className="muted">Redirect URI: {env.TIKTOK_REDIRECT_URI || "missing"}</div>
               <div className="muted">Scopes: {tiktokScopeString}</div>
+              <div className="muted">Current CRM use: short-video publishing</div>
               <div className="muted">Sandbox mode: {env.TIKTOK_USE_SANDBOX ? "enabled" : "disabled"}</div>
             </div>
           </div>
@@ -360,52 +466,20 @@ export default async function AutomationPage(props: {
 
       <section>
         <SectionCard title="Daily autopost plans">
-          <form className="form-grid simple-form" id="autopost-form">
-            <div className="stack">
-              <p className="muted">Choose which connected accounts should receive the numbered daily image and reel libraries.</p>
-              {socialAccounts.length ? (
-                socialAccounts.map((account) => (
-                  <label key={account.id} className="calendar-event">
-                    <input type="checkbox" name="accountIds" value={account.id} defaultChecked />
-                    {" "}
-                    <strong>{account.accountLabel}</strong>
-                    <div className="muted">{getPlatformLabel(account.platform)}</div>
-                  </label>
-                ))
-              ) : (
-                <div className="calendar-event">Connect at least one account first.</div>
-              )}
-            </div>
-
-            <div className="two-up-inputs">
-              <div className="stack">
-                <label>Images time</label>
-                <input className="input" type="time" name="imageTime" defaultValue="09:00" />
-              </div>
-              <div className="stack">
-                <label>Reels time</label>
-                <input className="input" type="time" name="reelTime" defaultValue="12:00" />
-              </div>
-            </div>
-
-            <div className="toolbar toolbar-start">
-              <button className="button" formAction={scheduleYearImagesAction} type="submit">
-                Queue all year images
-              </button>
-              <button className="button secondary" formAction={pauseYearImagesAction} type="submit">
-                Pause images
-              </button>
-            </div>
-
-            <div className="toolbar toolbar-start">
-              <button className="button" formAction={scheduleYearReelsAction} type="submit">
-                Queue all year reels
-              </button>
-              <button className="button secondary" formAction={pauseYearReelsAction} type="submit">
-                Pause reels
-              </button>
-            </div>
-          </form>
+          <div className="stack">
+            {autoplanStatusMessage ? <div className="calendar-event action-feedback success">{autoplanStatusMessage}</div> : null}
+            <AutoPostPlanForm
+              accounts={socialAccounts.map((account) => ({
+                id: account.id,
+                accountLabel: account.accountLabel,
+                platformLabel: getPlatformLabel(account.platform),
+              }))}
+              scheduleYearImagesAction={scheduleYearImagesAction}
+              scheduleYearReelsAction={scheduleYearReelsAction}
+              pauseYearImagesAction={pauseYearImagesAction}
+              pauseYearReelsAction={pauseYearReelsAction}
+            />
+          </div>
         </SectionCard>
       </section>
 
@@ -416,6 +490,7 @@ export default async function AutomationPage(props: {
               id: account.id,
               accountLabel: account.accountLabel,
               platformLabel: getPlatformLabel(account.platform),
+              platform: account.platform,
             }))}
           />
         </SectionCard>
@@ -426,16 +501,18 @@ export default async function AutomationPage(props: {
               queuedPosts.map((post) => (
                 <div key={post.id} className="list-item">
                   <div>
-                    <strong>{post.caption || post.asset?.title || "Untitled post"}</strong>
+                    <strong>{getQueueDisplayText(post)}</strong>
                     <div className="muted">
                       {getPostTypeLabel(post.postType)}
                       {" | "}
                       {post.socialAccount?.accountLabel || "Unassigned account"}
                     </div>
-                    {post.asset?.title ? <div className="muted">Media: {post.asset.title}</div> : null}
+                    {post.asset?.title && !isGeneratedAutomationLabel(post.asset.title) ? (
+                      <div className="muted">Media: {post.asset.title}</div>
+                    ) : null}
                   </div>
                   <div className="muted">
-                    {post.status === "READY" ? "Ready now" : post.scheduledFor ? post.scheduledFor.toLocaleString("en-US") : "Queued"}
+                    {post.status === "READY" ? "Ready now" : post.scheduledFor ? formatAutomationDate(post.scheduledFor) : "Queued"}
                   </div>
                 </div>
               ))

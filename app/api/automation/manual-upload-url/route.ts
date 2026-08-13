@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { ContentAssetType, SocialPostType } from "@prisma/client";
 import { requireAuthContext } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { env } from "@/lib/env";
 
 function getAssetType(postType: SocialPostType): ContentAssetType {
   return postType === "SHORT_VIDEO" ? "DEVOTIONAL_VIDEO" : "DAILY_IMAGE";
@@ -35,13 +36,16 @@ export async function POST(request: Request) {
     }
 
     const publicUrl = supabase.storage.from(bucketName).getPublicUrl(objectPath).data.publicUrl;
+    const signedUploadUrl = signed.data.signedUrl.startsWith("http")
+      ? signed.data.signedUrl
+      : new URL(signed.data.signedUrl, env.NEXT_PUBLIC_SUPABASE_URL).toString();
 
     return NextResponse.json({
       churchId: auth.churchId,
       bucketName,
       objectPath,
       token: signed.data.token,
-      signedUploadUrl: signed.data.signedUrl,
+      signedUploadUrl,
       publicUrl,
       assetType: getAssetType(postType),
       contentType: String(body.contentType || "").trim() || null,

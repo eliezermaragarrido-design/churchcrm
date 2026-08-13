@@ -432,12 +432,34 @@ textarea {
   cursor: pointer;
   font-weight: 600;
   min-height: 42px;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, color 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
 
 .button.secondary {
   background: var(--paper);
   color: var(--ink);
   border: 1px solid var(--line);
+}
+
+.button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(27, 35, 30, 0.08);
+}
+
+.button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.button.working {
+  background: #2f6b58;
+  box-shadow: 0 0 0 3px rgba(47, 107, 88, 0.12);
+}
+
+.button.secondary.working {
+  background: var(--accent-soft);
+  border-color: #9ab8ab;
+  color: var(--accent-strong);
 }
 
 .danger-button {
@@ -455,6 +477,17 @@ textarea {
   border-radius: 16px;
   border: 1px solid var(--line);
   background: var(--paper-strong);
+}
+
+.action-feedback {
+  border-color: #bfd4c8;
+  background: #eef5f1;
+  color: var(--accent-strong);
+}
+
+.action-feedback.success {
+  border-color: #a8cab8;
+  background: #e7f2eb;
 }
 
 .card-link-wrap {

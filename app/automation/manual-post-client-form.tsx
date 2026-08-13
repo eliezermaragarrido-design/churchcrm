@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const MAX_MANUAL_UPLOAD_BYTES = 4_000_000;
 
@@ -7,13 +7,48 @@ type ManualAccount = {
   id: string;
   accountLabel: string;
   platformLabel: string;
+  platform: string;
 };
+
+type ManualPostType = "FEED_POST" | "STORY" | "SHORT_VIDEO";
+
+function supportsPostType(platform: string, postType: ManualPostType) {
+  if (postType === "SHORT_VIDEO") {
+    return ["FACEBOOK_PAGE", "INSTAGRAM", "TIKTOK", "YOUTUBE"].includes(platform);
+  }
+
+  if (postType === "STORY") {
+    return ["FACEBOOK_PAGE", "INSTAGRAM"].includes(platform);
+  }
+
+  return ["FACEBOOK_PAGE", "INSTAGRAM"].includes(platform);
+}
 
 export function ManualPostClientForm(props: {
   accounts: ManualAccount[];
 }) {
+  const [postType, setPostType] = useState<ManualPostType>("FEED_POST");
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => props.accounts.map((account) => account.id));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const allowedAccountIds = props.accounts
+      .filter((account) => supportsPostType(account.platform, postType))
+      .map((account) => account.id);
+
+    setSelectedAccountIds((current) => current.filter((accountId) => allowedAccountIds.includes(accountId)));
+  }, [postType, props.accounts]);
+
+  function toggleAccount(accountId: string, checked: boolean) {
+    setSelectedAccountIds((current) => {
+      if (checked) {
+        return current.includes(accountId) ? current : [...current, accountId];
+      }
+
+      return current.filter((id) => id !== accountId);
+    });
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -31,7 +66,10 @@ export function ManualPostClientForm(props: {
       }
 
       if (selectedFile instanceof File && selectedFile.size) {
-        if (selectedFile.size > MAX_MANUAL_UPLOAD_BYTES) {
+        const shouldUseSupabaseUpload =
+          postType === "SHORT_VIDEO" || selectedFile.type.startsWith("video/") || selectedFile.size > MAX_MANUAL_UPLOAD_BYTES;
+
+        if (shouldUseSupabaseUpload) {
           const uploadInfoResponse = await fetch("/api/automation/manual-upload-url", {
             method: "POST",
             headers: {
@@ -104,7 +142,14 @@ export function ManualPostClientForm(props: {
         {props.accounts.length ? (
           props.accounts.map((account) => (
             <label key={`manual-${account.id}`} className="calendar-event">
-              <input type="checkbox" name="accountIds" value={account.id} defaultChecked />
+              <input
+                type="checkbox"
+                name="accountIds"
+                value={account.id}
+                checked={selectedAccountIds.includes(account.id)}
+                disabled={!supportsPostType(account.platform, postType)}
+                onChange={(event) => toggleAccount(account.id, event.target.checked)}
+              />
               {" "}
               <strong>{account.accountLabel}</strong>
               <div className="muted">{account.platformLabel}</div>
@@ -117,11 +162,19 @@ export function ManualPostClientForm(props: {
 
       <div className="stack">
         <label>Type</label>
-        <select className="input" name="postType" defaultValue="FEED_POST">
+        <select
+          className="input"
+          name="postType"
+          value={postType}
+          onChange={(event) => setPostType(event.target.value as ManualPostType)}
+        >
           <option value="FEED_POST">Feed post</option>
           <option value="STORY">Story</option>
           <option value="SHORT_VIDEO">Reel / short video</option>
         </select>
+        <div className="muted">
+          Feed posts and stories stay on Facebook/Instagram. TikTok and YouTube are reserved for short-video publishing in this CRM.
+        </div>
       </div>
 
       <div className="stack">
@@ -138,7 +191,8 @@ export function ManualPostClientForm(props: {
         <label>Media file</label>
         <input className="input" name="mediaFile" type="file" accept="image/*,video/*" />
         <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
-        <div className="muted">Manual uploads must stay under about 4 MB on Vercel. Larger videos need the Supabase asset flow instead of direct browser-to-function upload.</div>
+        <div className="muted">Short videos always use the Supabase upload path first so they do not hit the Vercel request-size limit.</div>
+        <div className="muted">Images can still post directly when they stay under about 4 MB on Vercel.</div>
       </div>
 
       <div className="stack">

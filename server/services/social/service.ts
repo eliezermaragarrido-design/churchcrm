@@ -3,7 +3,49 @@ import { prisma } from "@/lib/db/prisma";
 import { refreshTikTokAccessToken, queryTikTokCreatorInfo } from "@/lib/social/tiktok";
 import { refreshYouTubeAccessToken } from "@/lib/social/youtube";
 
+const DEFAULT_AUTOMATION_CAPTION_TEXT = "\u{1F64F}\u{1F3FC}\u{1F64C}\u{1F3FD}";
+
 const META_GRAPH_VERSION = "v23.0";
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const TIKTOK_MIN_CHUNK_SIZE = 5 * 1024 * 1024;
+const TIKTOK_MAX_CHUNK_SIZE = 64 * 1024 * 1024;
+const TIKTOK_DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024;
+
+function isInstagramNotReadyMessage(message: string) {
+  const normalized = message.trim().toLowerCase();
+
+  return (
+    normalized.includes("media id is not available") ||
+    normalized.includes("media is not ready") ||
+    normalized.includes("please wait")
+  );
+}
+
+async function readInstagramContainerStatus(containerId: string, accessToken: string) {
+  const statusUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/${containerId}`);
+  statusUrl.searchParams.set("fields", "status_code,status");
+  statusUrl.searchParams.set("access_token", accessToken);
+
+  const statusResponse = await fetch(statusUrl.toString(), { cache: "no-store" });
+  const statusData = (await statusResponse.json()) as {
+    status_code?: string;
+    status?: string;
+    error?: { message?: string };
+  };
+
+  if (!statusResponse.ok || statusData.error) {
+    throw new Error(statusData.error?.message || "Instagram media status polling failed.");
+  }
+
+  return String(statusData.status_code || statusData.status || "").toUpperCase();
+}
+const DEFAULT_AUTOMATION_CAPTION = "🙏 ⛪";
+
+void DEFAULT_AUTOMATION_CAPTION;
 
 type SocialPostWithRelations = SocialPost & {
   asset: ContentAsset | null;
@@ -33,6 +75,111 @@ function trimCaption(value: string | null | undefined, maxLength = 2200) {
   }
 
   return caption.length > maxLength ? caption.slice(0, maxLength) : caption;
+}
+
+function isGeneratedAutomationLabel(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /^daily (image|reel)\s+\d{1,3}$/.test(normalized) ||
+    /^day \d{1,3} (image|reel) post$/.test(normalized)
+  );
+}
+
+function getPostCaption(post: SocialPostWithRelations, maxLength = 2200) {
+  const explicitCaption = trimCaption(post.caption, maxLength);
+  const bodyCaption = trimCaption(post.asset?.body, maxLength);
+  const scriptureCaption = trimCaption(post.asset?.scriptureRef, maxLength);
+
+  return (
+    (!isGeneratedAutomationLabel(explicitCaption) ? explicitCaption : "") ||
+    (!isGeneratedAutomationLabel(bodyCaption) ? bodyCaption : "") ||
+    (!isGeneratedAutomationLabel(scriptureCaption) ? scriptureCaption : "") ||
+    trimCaption(DEFAULT_AUTOMATION_CAPTION_TEXT, maxLength)
+  );
+}
+
+function getTikTokTitle(post: SocialPostWithRelations, maxLength = 90) {
+  const explicitTitle = trimCaption(post.title, maxLength);
+  const assetTitle = trimCaption(post.asset?.title, maxLength);
+  const caption = trimCaption(getPostCaption(post, maxLength), maxLength);
+
+  return (
+    (!isGeneratedAutomationLabel(explicitTitle) ? explicitTitle : "") ||
+    (!isGeneratedAutomationLabel(assetTitle) ? assetTitle : "") ||
+    caption ||
+    trimCaption(DEFAULT_AUTOMATION_CAPTION_TEXT, maxLength)
+  );
+}
+
+async function downloadMediaBuffer(url: string) {
+  const mediaResponse = await fetch(url, { cache: "no-store" });
+
+  if (!mediaResponse.ok) {
+    throw new Error("Could not download the media file for TikTok upload.");
+  }
+
+  return Buffer.from(await mediaResponse.arrayBuffer());
+}
+
+function getTikTokChunkPlan(totalBytes: number) {
+  if (totalBytes <= 0) {
+    throw new Error("TikTok upload received an empty media file.");
+  }
+
+  if (totalBytes <= TIKTOK_MAX_CHUNK_SIZE) {
+    return [totalBytes];
+  }
+
+  const chunkSizes: number[] = [];
+  let remaining = totalBytes;
+
+  while (remaining > 0) {
+    if (remaining <= TIKTOK_MAX_CHUNK_SIZE) {
+      if (remaining < TIKTOK_MIN_CHUNK_SIZE && chunkSizes.length > 0) {
+        chunkSizes[chunkSizes.length - 1] += remaining;
+      } else {
+        chunkSizes.push(remaining);
+      }
+      break;
+    }
+
+    const nextChunkSize = Math.min(TIKTOK_DEFAULT_CHUNK_SIZE, remaining);
+    chunkSizes.push(nextChunkSize);
+    remaining -= nextChunkSize;
+  }
+
+  return chunkSizes;
+}
+
+async function uploadTikTokVideoChunks(uploadUrl: string, mediaBuffer: Buffer, mimeType: string) {
+  const chunkSizes = getTikTokChunkPlan(mediaBuffer.byteLength);
+  let offset = 0;
+
+  for (const chunkSize of chunkSizes) {
+    const end = offset + chunkSize;
+    const chunk = mediaBuffer.subarray(offset, end);
+    const response = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": mimeType,
+        "Content-Length": String(chunk.length),
+        "Content-Range": `bytes ${offset}-${end - 1}/${mediaBuffer.byteLength}`,
+      },
+      body: chunk,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error("TikTok media upload failed while sending the video binary.");
+    }
+
+    offset = end;
+  }
 }
 
 async function updatePostFailure(postId: string, error: unknown) {
@@ -114,7 +261,7 @@ async function publishFacebookPagePost(post: SocialPostWithRelations) {
     throw new Error("Facebook Page account is missing page id or token.");
   }
 
-  const caption = trimCaption(post.caption || post.title || post.asset?.title);
+  const caption = getPostCaption(post);
 
   if (post.postType === "SHORT_VIDEO") {
     if (!post.asset?.fileUrl) {
@@ -196,7 +343,7 @@ async function publishInstagramPost(post: SocialPostWithRelations) {
     throw new Error("Instagram publishing requires a public media URL.");
   }
 
-  const caption = trimCaption(post.caption || post.title || post.asset.title);
+  const caption = getPostCaption(post);
   const createContainerUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${account.externalAccountId}/media`;
   const publishUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${account.externalAccountId}/media_publish`;
   const params = new URLSearchParams({
@@ -228,49 +375,54 @@ async function publishInstagramPost(post: SocialPostWithRelations) {
     throw new Error(createData.error?.message || "Instagram media container creation failed.");
   }
 
-  if (post.postType === "SHORT_VIDEO") {
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const statusUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/${createData.id}`);
-      statusUrl.searchParams.set("fields", "status_code,status");
-      statusUrl.searchParams.set("access_token", account.accessTokenRef);
+  if (post.postType === "FEED_POST") {
+    await sleep(8000);
+  }
 
-      const statusResponse = await fetch(statusUrl.toString(), { cache: "no-store" });
-      const statusData = (await statusResponse.json()) as { status_code?: string; status?: string; error?: { message?: string } };
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const statusCode = await readInstagramContainerStatus(createData.id, account.accessTokenRef);
 
-      if (!statusResponse.ok || statusData.error) {
-        throw new Error(statusData.error?.message || "Instagram media status polling failed.");
-      }
-
-      if (statusData.status_code === "FINISHED") {
-        break;
-      }
-
-      if (statusData.status_code === "ERROR") {
-        throw new Error("Instagram media processing failed.");
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+    if (statusCode === "FINISHED" || statusCode === "PUBLISHED") {
+      break;
     }
+
+    if (statusCode === "ERROR" || statusCode === "EXPIRED") {
+      throw new Error("Instagram media processing failed.");
+    }
+
+    await sleep(post.postType === "FEED_POST" ? 6000 : 4000);
   }
 
-  const publishResponse = await fetch(publishUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      access_token: account.accessTokenRef,
-      creation_id: createData.id,
-    }),
-    cache: "no-store",
-  });
-  const publishData = (await publishResponse.json()) as { id?: string; error?: { message?: string } };
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const publishResponse = await fetch(publishUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        access_token: account.accessTokenRef,
+        creation_id: createData.id,
+      }),
+      cache: "no-store",
+    });
+    const publishData = (await publishResponse.json()) as { id?: string; error?: { message?: string } };
 
-  if (!publishResponse.ok || publishData.error) {
-    throw new Error(publishData.error?.message || "Instagram publish failed.");
+    if (publishResponse.ok && !publishData.error) {
+      return publishData.id || createData.id;
+    }
+
+    const message = publishData.error?.message || "Instagram publish failed.";
+
+    if (attempt < 19 && isInstagramNotReadyMessage(message)) {
+      await sleep(post.postType === "FEED_POST" ? 6000 : 4000);
+      await readInstagramContainerStatus(createData.id, account.accessTokenRef);
+      continue;
+    }
+
+    throw new Error(message);
   }
 
-  return publishData.id || createData.id;
+  throw new Error("Instagram publish timed out while waiting for media readiness.");
 }
 
 async function publishTikTokPost(post: SocialPostWithRelations) {
@@ -292,9 +444,12 @@ async function publishTikTokPost(post: SocialPostWithRelations) {
     privacyOptions[0] ||
     "SELF_ONLY";
 
-  const caption = trimCaption(post.caption || post.title || post.asset.title);
+  const caption = getPostCaption(post);
 
   if (post.postType === "SHORT_VIDEO") {
+    const mediaBuffer = await downloadMediaBuffer(post.asset.fileUrl);
+    const mimeType = getMimeTypeFromUrl(post.asset.fileUrl);
+    const chunkSizes = getTikTokChunkPlan(mediaBuffer.byteLength);
     const response = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
       method: "POST",
       headers: {
@@ -311,20 +466,24 @@ async function publishTikTokPost(post: SocialPostWithRelations) {
           brand_organic_toggle: true,
         },
         source_info: {
-          source: "PULL_FROM_URL",
-          video_url: post.asset.fileUrl,
+          source: "FILE_UPLOAD",
+          video_size: mediaBuffer.byteLength,
+          chunk_size: chunkSizes[0],
+          total_chunk_count: chunkSizes.length,
         },
       }),
       cache: "no-store",
     });
     const data = (await response.json()) as {
-      data?: { publish_id?: string };
+      data?: { publish_id?: string; upload_url?: string };
       error?: { code?: string; message?: string };
     };
 
-    if (!response.ok || data.error?.code !== "ok") {
+    if (!response.ok || data.error?.code !== "ok" || !data.data?.upload_url) {
       throw new Error(data.error?.message || "TikTok video publishing failed.");
     }
+
+    await uploadTikTokVideoChunks(data.data.upload_url, mediaBuffer, mimeType);
 
     return data.data?.publish_id || null;
   }
@@ -337,7 +496,7 @@ async function publishTikTokPost(post: SocialPostWithRelations) {
     },
     body: JSON.stringify({
       post_info: {
-        title: post.asset.title,
+        title: getTikTokTitle(post),
         description: caption,
         privacy_level: privacyLevel,
         disable_comment: false,
@@ -392,7 +551,7 @@ async function publishYouTubePost(post: SocialPostWithRelations) {
   const metadata = {
     snippet: {
       title: trimCaption(post.title || post.asset.title || "Daily reel", 100),
-      description: trimCaption(post.caption || "", 5000),
+      description: getPostCaption(post, 5000),
       categoryId: "22",
     },
     status: {

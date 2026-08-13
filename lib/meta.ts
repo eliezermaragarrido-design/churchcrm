@@ -45,10 +45,12 @@ export function getMetaConnectUrl(
   url.searchParams.set("scope", META_SCOPES);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);
-  url.searchParams.set("auth_type", "rerequest");
+  url.searchParams.set("display", "popup");
 
   if (options?.forceRelogin) {
-    url.searchParams.set("prompt", "select_account");
+    url.searchParams.set("auth_type", "reauthenticate");
+  } else {
+    url.searchParams.set("auth_type", "rerequest");
   }
 
   return url.toString();
