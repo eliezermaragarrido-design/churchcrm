@@ -238,6 +238,7 @@ export default async function AutomationPage(props: {
 
   let imageAssetCount = dbImageAssetCount;
   let reelAssetCount = dbReelAssetCount;
+  let reelLibraryOptions: { title: string; url: string }[] = [];
 
   try {
     const [imageBucketFiles, reelBucketFiles] = await Promise.all([
@@ -247,9 +248,14 @@ export default async function AutomationPage(props: {
 
     imageAssetCount = imageBucketFiles.length;
     reelAssetCount = reelBucketFiles.length;
+    reelLibraryOptions = reelBucketFiles.map((fileName) => ({
+      title: fileName,
+      url: `${env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/REELS/${fileName}`,
+    }));
   } catch {
     imageAssetCount = dbImageAssetCount;
     reelAssetCount = dbReelAssetCount;
+    reelLibraryOptions = [];
   }
 
   const statsByStatus = {
@@ -492,6 +498,7 @@ export default async function AutomationPage(props: {
               platformLabel: getPlatformLabel(account.platform),
               platform: account.platform,
             }))}
+            reelLibraryOptions={reelLibraryOptions}
           />
         </SectionCard>
 

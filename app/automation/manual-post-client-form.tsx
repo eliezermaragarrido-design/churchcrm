@@ -10,6 +10,11 @@ type ManualAccount = {
   platform: string;
 };
 
+type ReelLibraryOption = {
+  title: string;
+  url: string;
+};
+
 type ManualPostType = "FEED_POST" | "STORY" | "SHORT_VIDEO";
 
 function supportsPostType(platform: string, postType: ManualPostType) {
@@ -26,9 +31,11 @@ function supportsPostType(platform: string, postType: ManualPostType) {
 
 export function ManualPostClientForm(props: {
   accounts: ManualAccount[];
+  reelLibraryOptions: ReelLibraryOption[];
 }) {
   const [postType, setPostType] = useState<ManualPostType>("FEED_POST");
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => props.accounts.map((account) => account.id));
+  const [selectedReelUrl, setSelectedReelUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -63,6 +70,15 @@ export function ManualPostClientForm(props: {
 
       if (submitter?.value) {
         formData.set("submitMode", submitter.value);
+      }
+
+      if (!(selectedFile instanceof File && selectedFile.size) && postType === "SHORT_VIDEO" && selectedReelUrl) {
+        const selectedReel = props.reelLibraryOptions.find((option) => option.url === selectedReelUrl);
+
+        if (selectedReel) {
+          formData.set("uploadedAssetUrl", selectedReel.url);
+          formData.set("uploadedAssetTitle", selectedReel.title);
+        }
       }
 
       if (selectedFile instanceof File && selectedFile.size) {
@@ -194,6 +210,25 @@ export function ManualPostClientForm(props: {
         <div className="muted">Short videos always use the Supabase upload path first so they do not hit the Vercel request-size limit.</div>
         <div className="muted">Images can still post directly when they stay under about 4 MB on Vercel.</div>
       </div>
+
+      {postType === "SHORT_VIDEO" ? (
+        <div className="stack">
+          <label>Or use a reel already in Supabase</label>
+          <select
+            className="input"
+            value={selectedReelUrl}
+            onChange={(event) => setSelectedReelUrl(event.target.value)}
+          >
+            <option value="">Choose an existing reel from the REELS bucket</option>
+            {props.reelLibraryOptions.map((option) => (
+              <option key={option.url} value={option.url}>
+                {option.title}
+              </option>
+            ))}
+          </select>
+          <div className="muted">Use this when you want to test TikTok or YouTube with a reel that is already stored in Supabase.</div>
+        </div>
+      ) : null}
 
       <div className="stack">
         <label>Scheduled date and time</label>
