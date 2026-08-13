@@ -221,12 +221,22 @@ export function ManualPostClientForm(props: {
           name="mediaFile"
           type="file"
           accept="image/*,video/*"
-          disabled={postType === "SHORT_VIDEO" && Boolean(selectedReelUrl)}
+          disabled={postType === "SHORT_VIDEO"}
           onChange={() => setSubmitError(null)}
         />
         <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
-        <div className="muted">Short videos always use the Supabase upload path first so they do not hit the Vercel request-size limit.</div>
-        <div className="muted">Images can still post directly when they stay under about 4 MB on Vercel.</div>
+        {postType === "SHORT_VIDEO" ? (
+          <div className="muted">
+            Local video uploads are turned off in this form. For reels and TikTok/YouTube tests, first upload the video into the
+            Supabase <strong>REELS</strong> bucket, then choose it below. This keeps manual posting aligned with the daily automation
+            flow and avoids request-size failures.
+          </div>
+        ) : (
+          <>
+            <div className="muted">Images can still post directly when they stay under about 4 MB on Vercel.</div>
+            <div className="muted">Short videos use the REELS bucket workflow instead of direct browser upload.</div>
+          </>
+        )}
       </div>
 
       {postType === "SHORT_VIDEO" ? (
@@ -253,7 +263,7 @@ export function ManualPostClientForm(props: {
           </select>
           <div className="muted">Use this when you want to test TikTok or YouTube with a reel that is already stored in Supabase.</div>
           {selectedReelUrl ? (
-            <div className="muted">Using a Supabase reel now. The local file input is turned off so the browser file does not accidentally trigger the large-payload path.</div>
+            <div className="muted">Using a Supabase reel now. This is the same storage path the daily autopost plan uses.</div>
           ) : null}
         </div>
       ) : null}
