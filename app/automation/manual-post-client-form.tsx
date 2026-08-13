@@ -36,6 +36,7 @@ export function ManualPostClientForm(props: {
   const [postType, setPostType] = useState<ManualPostType>("FEED_POST");
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => props.accounts.map((account) => account.id));
   const [selectedReelUrl, setSelectedReelUrl] = useState("");
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -46,6 +47,14 @@ export function ManualPostClientForm(props: {
 
     setSelectedAccountIds((current) => current.filter((accountId) => allowedAccountIds.includes(accountId)));
   }, [postType, props.accounts]);
+
+  useEffect(() => {
+    setSubmitError(null);
+
+    if (postType !== "SHORT_VIDEO" && selectedReelUrl) {
+      setSelectedReelUrl("");
+    }
+  }, [postType, selectedReelUrl]);
 
   function toggleAccount(accountId: string, checked: boolean) {
     setSelectedAccountIds((current) => {
@@ -72,7 +81,8 @@ export function ManualPostClientForm(props: {
         formData.set("submitMode", submitter.value);
       }
 
-      if (!(selectedFile instanceof File && selectedFile.size) && postType === "SHORT_VIDEO" && selectedReelUrl) {
+      if (postType === "SHORT_VIDEO" && selectedReelUrl) {
+        formData.delete("mediaFile");
         const selectedReel = props.reelLibraryOptions.find((option) => option.url === selectedReelUrl);
 
         if (selectedReel) {
@@ -205,7 +215,15 @@ export function ManualPostClientForm(props: {
 
       <div className="stack">
         <label>Media file</label>
-        <input className="input" name="mediaFile" type="file" accept="image/*,video/*" />
+        <input
+          key={fileInputKey}
+          className="input"
+          name="mediaFile"
+          type="file"
+          accept="image/*,video/*"
+          disabled={postType === "SHORT_VIDEO" && Boolean(selectedReelUrl)}
+          onChange={() => setSubmitError(null)}
+        />
         <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
         <div className="muted">Short videos always use the Supabase upload path first so they do not hit the Vercel request-size limit.</div>
         <div className="muted">Images can still post directly when they stay under about 4 MB on Vercel.</div>
@@ -217,7 +235,14 @@ export function ManualPostClientForm(props: {
           <select
             className="input"
             value={selectedReelUrl}
-            onChange={(event) => setSelectedReelUrl(event.target.value)}
+            onChange={(event) => {
+              setSelectedReelUrl(event.target.value);
+              setSubmitError(null);
+
+              if (event.target.value) {
+                setFileInputKey((current) => current + 1);
+              }
+            }}
           >
             <option value="">Choose an existing reel from the REELS bucket</option>
             {props.reelLibraryOptions.map((option) => (
@@ -227,6 +252,9 @@ export function ManualPostClientForm(props: {
             ))}
           </select>
           <div className="muted">Use this when you want to test TikTok or YouTube with a reel that is already stored in Supabase.</div>
+          {selectedReelUrl ? (
+            <div className="muted">Using a Supabase reel now. The local file input is turned off so the browser file does not accidentally trigger the large-payload path.</div>
+          ) : null}
         </div>
       ) : null}
 
