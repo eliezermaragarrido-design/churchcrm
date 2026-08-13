@@ -12,6 +12,19 @@ function getBucketName(postType: SocialPostType) {
   return postType === "SHORT_VIDEO" ? "REELS" : "IMAGES";
 }
 
+function getSupabaseResumableEndpoint() {
+  if (!env.NEXT_PUBLIC_SUPABASE_URL) {
+    throw new Error("Supabase public URL is missing.");
+  }
+
+  const projectUrl = new URL(env.NEXT_PUBLIC_SUPABASE_URL);
+  projectUrl.hostname = projectUrl.hostname.replace(".supabase.co", ".storage.supabase.co");
+  projectUrl.pathname = "/storage/v1/upload/resumable";
+  projectUrl.search = "";
+  projectUrl.hash = "";
+  return projectUrl.toString();
+}
+
 export async function POST(request: Request) {
   try {
     const auth = await requireAuthContext();
@@ -46,6 +59,7 @@ export async function POST(request: Request) {
       objectPath,
       token: signed.data.token,
       signedUploadUrl,
+      resumableUploadUrl: getSupabaseResumableEndpoint(),
       publicUrl,
       assetType: getAssetType(postType),
       contentType: String(body.contentType || "").trim() || null,

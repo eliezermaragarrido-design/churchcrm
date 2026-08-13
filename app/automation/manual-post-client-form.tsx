@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import * as tus from "tus-js-client";
 
 const MAX_MANUAL_UPLOAD_BYTES = 4_000_000;
 
@@ -17,6 +18,15 @@ type ReelLibraryOption = {
 
 type ManualPostType = "FEED_POST" | "STORY" | "SHORT_VIDEO";
 
+type ManualUploadInfo = {
+  signedUploadUrl?: string;
+  resumableUploadUrl?: string;
+  publicUrl?: string;
+  token?: string;
+  bucketName?: string;
+  objectPath?: string;
+};
+
 function supportsPostType(platform: string, postType: ManualPostType) {
   if (postType === "SHORT_VIDEO") {
     return ["FACEBOOK_PAGE", "INSTAGRAM", "TIKTOK", "YOUTUBE"].includes(platform);
@@ -27,6 +37,51 @@ function supportsPostType(platform: string, postType: ManualPostType) {
   }
 
   return ["FACEBOOK_PAGE", "INSTAGRAM"].includes(platform);
+}
+
+async function uploadFileToSupabaseResumable(input: {
+  file: File;
+  uploadInfo: ManualUploadInfo;
+}) {
+  if (!input.uploadInfo.resumableUploadUrl || !input.uploadInfo.token || !input.uploadInfo.bucketName || !input.uploadInfo.objectPath) {
+    throw new Error("Supabase resumable upload preparation returned incomplete data.");
+  }
+
+  const { resumableUploadUrl, token, bucketName, objectPath } = input.uploadInfo;
+
+  await new Promise<void>((resolve, reject) => {
+    const upload = new tus.Upload(input.file, {
+      endpoint: resumableUploadUrl,
+      retryDelays: [0, 3000, 5000, 10000, 20000],
+      headers: {
+        "x-upsert": "false",
+        "x-signature": token,
+      },
+      uploadDataDuringCreation: true,
+      removeFingerprintOnSuccess: true,
+      chunkSize: 6 * 1024 * 1024,
+      metadata: {
+        bucketName,
+        objectName: objectPath,
+        contentType: input.file.type || "application/octet-stream",
+        cacheControl: "3600",
+      },
+      onError(error) {
+        reject(error);
+      },
+      onSuccess() {
+        resolve();
+      },
+    });
+
+    upload.findPreviousUploads().then((previousUploads) => {
+      if (previousUploads.length) {
+        upload.resumeFromPreviousUpload(previousUploads[0]);
+      }
+
+      upload.start();
+    }).catch(reject);
+  });
 }
 
 export function ManualPostClientForm(props: {
@@ -112,28 +167,39 @@ export function ManualPostClientForm(props: {
             throw new Error("Could not prepare a direct Supabase upload for this media file.");
           }
 
-          const uploadInfo = (await uploadInfoResponse.json()) as {
-            signedUploadUrl?: string;
-            publicUrl?: string;
-          };
+          const uploadInfo = (await uploadInfoResponse.json()) as ManualUploadInfo;
 
-          if (!uploadInfo.signedUploadUrl || !uploadInfo.publicUrl) {
+          if (!uploadInfo.publicUrl) {
             throw new Error("Supabase upload preparation returned incomplete data.");
           }
 
-          const uploadResult = await fetch(uploadInfo.signedUploadUrl, {
-            method: "PUT",
-            headers: selectedFile.type
-              ? {
-                  "Content-Type": selectedFile.type,
-                }
-              : undefined,
-            body: selectedFile,
-          });
+          const shouldUseResumableUpload =
+            postType === "SHORT_VIDEO" || selectedFile.type.startsWith("video/") || selectedFile.size > 6 * 1024 * 1024;
 
-          if (!uploadResult.ok) {
-            const errorText = await uploadResult.text();
-            throw new Error(errorText || `Supabase direct upload failed with status ${uploadResult.status}.`);
+          if (shouldUseResumableUpload) {
+            await uploadFileToSupabaseResumable({
+              file: selectedFile,
+              uploadInfo,
+            });
+          } else {
+            if (!uploadInfo.signedUploadUrl) {
+              throw new Error("Supabase direct upload preparation returned incomplete data.");
+            }
+
+            const uploadResult = await fetch(uploadInfo.signedUploadUrl, {
+              method: "PUT",
+              headers: selectedFile.type
+                ? {
+                    "Content-Type": selectedFile.type,
+                  }
+                : undefined,
+              body: selectedFile,
+            });
+
+            if (!uploadResult.ok) {
+              const errorText = await uploadResult.text();
+              throw new Error(errorText || `Supabase direct upload failed with status ${uploadResult.status}.`);
+            }
           }
 
           formData.delete("mediaFile");
