@@ -152,6 +152,38 @@ function getManualStatusMessage(status: string | null, posted: string | null, fa
   return `Manual post error: ${status}`;
 }
 
+function getManualStatusFeedback(status: string | null, posted: string | null, failed: string | null) {
+  if (status !== "published") {
+    return null;
+  }
+
+  const postedCount = Number(posted || 0);
+  const failedCount = Number(failed || 0);
+
+  if (postedCount > 0 && failedCount === 0) {
+    return {
+      tone: "success" as const,
+      message: `Subido correctamente. ${postedCount} publicacion${postedCount === 1 ? "" : "es"} confirmada${postedCount === 1 ? "" : "s"} sin errores.`,
+    };
+  }
+
+  if (postedCount > 0 && failedCount > 0) {
+    return {
+      tone: "warning" as const,
+      message: `Publicacion parcial. ${postedCount} publicadas y ${failedCount} con error.`,
+    };
+  }
+
+  if (failedCount > 0) {
+    return {
+      tone: "error" as const,
+      message: `La publicacion no se completo. ${failedCount} intento${failedCount === 1 ? "" : "s"} fallaron.`,
+    };
+  }
+
+  return null;
+}
+
 function getAutoplanStatusMessage(status: string | null) {
   if (status === "images-queued") {
     return "The daily image plan was queued successfully.";
@@ -295,6 +327,7 @@ export default async function AutomationPage(props: {
       : pendingSelections;
   const tiktokScopeString = getTikTokScopeString();
   const manualStatusMessage = getManualStatusMessage(manualStatus, manualPosted, manualFailed);
+  const manualStatusFeedback = getManualStatusFeedback(manualStatus, manualPosted, manualFailed);
   const autoplanStatusMessage = getAutoplanStatusMessage(autoplanStatus);
 
   return (
@@ -491,6 +524,19 @@ export default async function AutomationPage(props: {
 
       <section className="two-column narrow-right">
         <SectionCard title="Post once">
+          {manualStatusFeedback ? (
+            <div
+              className={`calendar-event action-feedback ${
+                manualStatusFeedback.tone === "success"
+                  ? "success"
+                  : manualStatusFeedback.tone === "warning"
+                    ? "warning"
+                    : "error"
+              }`}
+            >
+              {manualStatusFeedback.message}
+            </div>
+          ) : null}
           <ManualPostClientForm
             accounts={socialAccounts.map((account) => ({
               id: account.id,
