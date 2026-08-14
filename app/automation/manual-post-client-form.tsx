@@ -65,6 +65,16 @@ function shouldUseDirectTikTokLocalUpload(input: {
   return selectedPlatforms.length > 0 && selectedPlatforms.every((platform) => platform === "TIKTOK");
 }
 
+function getSelectedPlatformAccountIds(input: {
+  selectedAccountIds: string[];
+  accounts: ManualAccount[];
+  platform: string;
+}) {
+  return input.accounts
+    .filter((account) => input.selectedAccountIds.includes(account.id) && account.platform === input.platform)
+    .map((account) => account.id);
+}
+
 async function uploadFileToSupabaseResumable(input: {
   file: File;
   uploadInfo: ManualUploadInfo;
@@ -237,6 +247,13 @@ export function ManualPostClientForm(props: {
       const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
       const selectedFile = formData.get("mediaFile");
       const postType = String(formData.get("postType") || "FEED_POST").trim();
+      const submitMode = submitter?.value || String(formData.get("submitMode") || "NOW").trim();
+      const selectedTikTokAccountIds = getSelectedPlatformAccountIds({
+        selectedAccountIds,
+        accounts: props.accounts,
+        platform: "TIKTOK",
+      });
+      const selectedNonTikTokAccountIds = selectedAccountIds.filter((accountId) => !selectedTikTokAccountIds.includes(accountId));
 
       if (submitter?.value) {
         formData.set("submitMode", submitter.value);
@@ -328,11 +345,10 @@ export function ManualPostClientForm(props: {
       if (
         selectedFile instanceof File &&
         selectedFile.size &&
-        shouldUseDirectTikTokLocalUpload({
-          postType: postType as ManualPostType,
-          selectedAccountIds,
-          accounts: props.accounts,
-        })
+        postType === "SHORT_VIDEO" &&
+        submitMode === "NOW" &&
+        selectedFile.type.startsWith("video/") &&
+        selectedTikTokAccountIds.length
       ) {
         const initResponse = await fetch("/api/automation/manual-post/tiktok-direct-init", {
           method: "POST",
@@ -340,7 +356,7 @@ export function ManualPostClientForm(props: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            accountIds: selectedAccountIds,
+            accountIds: selectedTikTokAccountIds,
             caption: String(formData.get("caption") || "").trim(),
             fileSize: selectedFile.size,
             fileType: selectedFile.type,
@@ -387,6 +403,36 @@ export function ManualPostClientForm(props: {
               firstError = message;
             }
           }
+        }
+
+        if (selectedNonTikTokAccountIds.length) {
+          const queuedFormData = new FormData();
+
+          for (const [key, value] of formData.entries()) {
+            if (key === "accountIds" || key === "mediaFile") {
+              continue;
+            }
+
+            queuedFormData.append(key, value);
+          }
+
+          for (const accountId of selectedNonTikTokAccountIds) {
+            queuedFormData.append("accountIds", accountId);
+          }
+
+          const queuedResponse = await fetch("/api/automation/manual-post", {
+            method: "POST",
+            body: queuedFormData,
+            redirect: "follow",
+          });
+
+          if (!queuedResponse.ok) {
+            throw new Error(`Manual post request failed with status ${queuedResponse.status}.`);
+          }
+
+          const queuedUrl = new URL(queuedResponse.url || "/automation", window.location.origin);
+          posted += Number(queuedUrl.searchParams.get("posted") || 0);
+          failed += Number(queuedUrl.searchParams.get("failed") || 0);
         }
 
         const redirectUrl = new URL("/automation", window.location.origin);
@@ -488,13 +534,13 @@ export function ManualPostClientForm(props: {
         />
         <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
         {postType === "SHORT_VIDEO" ? (
-          shouldUseDirectTikTokLocalUpload({
-            postType,
+          getSelectedPlatformAccountIds({
             selectedAccountIds,
             accounts: props.accounts,
-          }) ? (
+            platform: "TIKTOK",
+          }).length ? (
             <div className="muted">
-              With TikTok selected by itself, a local video publishes straight to TikTok and does not pass through Supabase first.
+              TikTok short videos publish straight to TikTok from your browser. If Facebook, Instagram, or YouTube are also selected, the CRM still prepares their own publishing path separately.
             </div>
           ) : (
             <div className="muted">
