@@ -539,6 +539,90 @@ async function publishTikTokPost(post: SocialPostWithRelations) {
   return data.data?.publish_id || null;
 }
 
+async function publishTikTokVideoBuffer(input: {
+  account: SocialAccount;
+  mediaBuffer: Buffer;
+  mimeType: string;
+  caption: string;
+}) {
+  const accessToken = await ensureTikTokAccessToken(input.account);
+  const creatorInfo = await queryTikTokCreatorInfo(accessToken);
+  const privacyOptions = creatorInfo.data?.privacy_level_options || [];
+  const sandboxPreferredPrivacyLevel = privacyOptions.find((option) => option === "SELF_ONLY");
+  const publicPreferredPrivacyLevel = privacyOptions.find((option) => option === "PUBLIC_TO_EVERYONE");
+  const privacyLevel =
+    (env.TIKTOK_USE_SANDBOX ? sandboxPreferredPrivacyLevel : publicPreferredPrivacyLevel) ||
+    sandboxPreferredPrivacyLevel ||
+    publicPreferredPrivacyLevel ||
+    privacyOptions[0] ||
+    "SELF_ONLY";
+  const chunkSizes = getTikTokChunkPlan(input.mediaBuffer.byteLength);
+  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify({
+      post_info: {
+        title: trimCaption(input.caption, 2200) || trimCaption(DEFAULT_AUTOMATION_CAPTION_TEXT, 2200),
+        privacy_level: privacyLevel,
+        disable_comment: false,
+        disable_duet: false,
+        disable_stitch: false,
+        brand_organic_toggle: true,
+      },
+      source_info: {
+        source: "FILE_UPLOAD",
+        video_size: input.mediaBuffer.byteLength,
+        chunk_size: chunkSizes[0],
+        total_chunk_count: chunkSizes.length,
+      },
+    }),
+    cache: "no-store",
+  });
+  const data = (await response.json()) as {
+    data?: { publish_id?: string; upload_url?: string };
+    error?: { code?: string; message?: string };
+  };
+
+  if (!response.ok || data.error?.code !== "ok" || !data.data?.upload_url) {
+    throw new Error(normalizeTikTokPublishError(data.error?.message || "TikTok video publishing failed."));
+  }
+
+  await uploadTikTokVideoChunks(data.data.upload_url, input.mediaBuffer, input.mimeType);
+
+  return data.data?.publish_id || null;
+}
+
+export async function publishTikTokLocalVideoNow(input: {
+  socialAccountId: string;
+  file: File;
+  caption?: string | null;
+}) {
+  const account = await prisma.socialAccount.findUnique({
+    where: { id: input.socialAccountId },
+  });
+
+  if (!account || account.platform !== "TIKTOK") {
+    throw new Error("TikTok account is missing or no longer available.");
+  }
+
+  if (!input.file.size) {
+    throw new Error("Choose a local TikTok video before publishing.");
+  }
+
+  const mediaBuffer = Buffer.from(await input.file.arrayBuffer());
+  const mimeType = input.file.type || "video/mp4";
+
+  return publishTikTokVideoBuffer({
+    account,
+    mediaBuffer,
+    mimeType,
+    caption: trimCaption(input.caption, 2200) || trimCaption(DEFAULT_AUTOMATION_CAPTION_TEXT, 2200),
+  });
+}
+
 async function publishYouTubePost(post: SocialPostWithRelations) {
   const account = post.socialAccount;
 

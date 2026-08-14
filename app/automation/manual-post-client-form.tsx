@@ -40,6 +40,22 @@ function supportsPostType(platform: string, postType: ManualPostType) {
   return ["FACEBOOK_PAGE", "INSTAGRAM"].includes(platform);
 }
 
+function shouldUseDirectTikTokLocalUpload(input: {
+  postType: ManualPostType;
+  selectedAccountIds: string[];
+  accounts: ManualAccount[];
+}) {
+  if (input.postType !== "SHORT_VIDEO" || !input.selectedAccountIds.length) {
+    return false;
+  }
+
+  const selectedPlatforms = input.accounts
+    .filter((account) => input.selectedAccountIds.includes(account.id))
+    .map((account) => account.platform);
+
+  return selectedPlatforms.length > 0 && selectedPlatforms.every((platform) => platform === "TIKTOK");
+}
+
 async function uploadFileToSupabaseResumable(input: {
   file: File;
   uploadInfo: ManualUploadInfo;
@@ -150,8 +166,17 @@ export function ManualPostClientForm(props: {
       }
 
       if (selectedFile instanceof File && selectedFile.size) {
+        const shouldBypassSupabaseForTikTokLocal =
+          shouldUseDirectTikTokLocalUpload({
+            postType: postType as ManualPostType,
+            selectedAccountIds,
+            accounts: props.accounts,
+          }) &&
+          selectedFile.type.startsWith("video/");
+
         const shouldUseSupabaseUpload =
-          postType === "SHORT_VIDEO" || selectedFile.type.startsWith("video/") || selectedFile.size > MAX_MANUAL_UPLOAD_BYTES;
+          !shouldBypassSupabaseForTikTokLocal &&
+          (postType === "SHORT_VIDEO" || selectedFile.type.startsWith("video/") || selectedFile.size > MAX_MANUAL_UPLOAD_BYTES);
 
         if (shouldUseSupabaseUpload) {
           const uploadInfoResponse = await fetch("/api/automation/manual-upload-url", {
@@ -301,10 +326,20 @@ export function ManualPostClientForm(props: {
         />
         <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
         {postType === "SHORT_VIDEO" ? (
-          <div className="muted">
-            If you choose a video from your PC, the CRM will upload it into the Supabase <strong>REELS</strong> bucket first and then
-            publish from there. That keeps TikTok, YouTube, and the daily automation flow using the same storage path.
-          </div>
+          shouldUseDirectTikTokLocalUpload({
+            postType,
+            selectedAccountIds,
+            accounts: props.accounts,
+          }) ? (
+            <div className="muted">
+              With TikTok selected by itself, a local video publishes straight to TikTok and does not pass through Supabase first.
+            </div>
+          ) : (
+            <div className="muted">
+              If you choose a video from your PC, the CRM will upload it into the Supabase <strong>REELS</strong> bucket first and then
+              publish from there. That keeps TikTok, YouTube, and the daily automation flow using the same storage path.
+            </div>
+          )
         ) : (
           <>
             <div className="muted">Images can still post directly when they stay under about 4 MB on Vercel.</div>

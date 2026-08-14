@@ -4,7 +4,7 @@ import type { ContentAssetType, SocialPlatform, SocialPostType } from "@prisma/c
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { processDueSocialPosts } from "@/server/services/social/service";
+import { processDueSocialPosts, publishTikTokLocalVideoNow } from "@/server/services/social/service";
 
 function getSelectedAccountIds(formData: FormData) {
   return formData
@@ -54,6 +54,75 @@ async function createManualQueuedPosts(input: {
       },
     });
   }
+}
+
+async function createManualDirectTikTokPosts(input: {
+  churchId: string;
+  accountIds: string[];
+  caption: string;
+  file: File;
+}) {
+  const accounts = await prisma.socialAccount.findMany({
+    where: {
+      churchId: input.churchId,
+      id: { in: input.accountIds },
+      isActive: true,
+      platform: "TIKTOK",
+    },
+    orderBy: [{ accountLabel: "asc" }],
+  });
+
+  let posted = 0;
+  let failed = 0;
+
+  for (const account of accounts) {
+    const post = await prisma.socialPost.create({
+      data: {
+        churchId: input.churchId,
+        socialAccountId: account.id,
+        title: null,
+        caption: input.caption || null,
+        postType: "SHORT_VIDEO",
+        status: "READY",
+        scheduledFor: new Date(),
+      },
+    });
+
+    try {
+      const externalPostId = await publishTikTokLocalVideoNow({
+        socialAccountId: account.id,
+        file: input.file,
+        caption: input.caption,
+      });
+
+      await prisma.socialPost.update({
+        where: { id: post.id },
+        data: {
+          status: "POSTED",
+          publishedAt: new Date(),
+          lastAttemptAt: new Date(),
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          externalPostId: externalPostId || null,
+        },
+      });
+      posted += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "TikTok local video publishing failed.";
+      await prisma.socialPost.update({
+        where: { id: post.id },
+        data: {
+          status: "FAILED",
+          lastAttemptAt: new Date(),
+          lastErrorCode: error instanceof Error ? error.name : "ERROR",
+          lastErrorMessage: message,
+        },
+      });
+      failed += 1;
+    }
+  }
+
+  return { posted, failed, processed: accounts.length };
 }
 
 async function uploadManualAsset(input: {
@@ -153,10 +222,44 @@ export async function POST(request: Request) {
       return seeOther(getRedirectUrl(origin, { manual: "missing-content" }));
     }
 
+    const selectedAccounts = await prisma.socialAccount.findMany({
+      where: {
+        churchId: auth.churchId,
+        id: { in: selectedAccountIds },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        platform: true,
+      },
+    });
+
+    const directTikTokAccountIds =
+      publishMode === "NOW" &&
+      postType === "SHORT_VIDEO" &&
+      mediaFile instanceof File &&
+      mediaFile.size &&
+      !uploadedAssetUrl
+        ? selectedAccounts.filter((account) => account.platform === "TIKTOK").map((account) => account.id)
+        : [];
+
+    const queuedAccountIds = selectedAccountIds.filter((accountId) => !directTikTokAccountIds.includes(accountId));
+
     const scheduledFor =
       publishMode === "SCHEDULE" && scheduledAtRaw
         ? new Date(scheduledAtRaw)
         : new Date();
+
+    let directTikTokResults = { posted: 0, failed: 0, processed: 0 };
+
+    if (directTikTokAccountIds.length && mediaFile instanceof File && mediaFile.size) {
+      directTikTokResults = await createManualDirectTikTokPosts({
+        churchId: auth.churchId,
+        accountIds: directTikTokAccountIds,
+        caption,
+        file: mediaFile,
+      });
+    }
 
     const manualAsset = uploadedAssetUrl
       ? await createUploadedAssetRecord({
@@ -165,7 +268,7 @@ export async function POST(request: Request) {
           fileName: uploadedAssetTitle || "Manual upload",
           postType,
         })
-      : mediaFile instanceof File && mediaFile.size
+      : queuedAccountIds.length && mediaFile instanceof File && mediaFile.size
         ? await uploadManualAsset({
             churchId: auth.churchId,
             file: mediaFile,
@@ -175,7 +278,7 @@ export async function POST(request: Request) {
 
     await createManualQueuedPosts({
       churchId: auth.churchId,
-      selectedAccountIds,
+      selectedAccountIds: queuedAccountIds,
       caption,
       postType,
       scheduledFor,
@@ -188,8 +291,8 @@ export async function POST(request: Request) {
       return seeOther(
         getRedirectUrl(origin, {
           manual: "published",
-          posted: String(result.posted),
-          failed: String(result.failed),
+          posted: String(result.posted + directTikTokResults.posted),
+          failed: String(result.failed + directTikTokResults.failed),
         }),
       );
     }
