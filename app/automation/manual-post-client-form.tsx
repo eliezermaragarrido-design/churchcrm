@@ -28,6 +28,15 @@ type ManualUploadInfo = {
   objectPath?: string;
 };
 
+type TikTokDirectUploadSession = {
+  socialPostId: string;
+  socialAccountId: string;
+  accountLabel: string;
+  uploadUrl: string;
+  externalPostId: string | null;
+  chunkSizes: number[];
+};
+
 function supportsPostType(platform: string, postType: ManualPostType) {
   if (postType === "SHORT_VIDEO") {
     return ["FACEBOOK_PAGE", "INSTAGRAM", "TIKTOK", "YOUTUBE"].includes(platform);
@@ -100,6 +109,84 @@ async function uploadFileToSupabaseResumable(input: {
 
       upload.start();
     }).catch(reject);
+  });
+}
+
+function buildTikTokChunkPlan(totalBytes: number) {
+  const minChunkSize = 5 * 1024 * 1024;
+  const maxChunkSize = 64 * 1024 * 1024;
+  const defaultChunkSize = 10 * 1024 * 1024;
+
+  if (totalBytes <= 0) {
+    throw new Error("TikTok upload received an empty media file.");
+  }
+
+  if (totalBytes <= maxChunkSize) {
+    return [totalBytes];
+  }
+
+  const chunkSizes: number[] = [];
+  let remaining = totalBytes;
+
+  while (remaining > 0) {
+    if (remaining <= maxChunkSize) {
+      if (remaining < minChunkSize && chunkSizes.length > 0) {
+        chunkSizes[chunkSizes.length - 1] += remaining;
+      } else {
+        chunkSizes.push(remaining);
+      }
+      break;
+    }
+
+    const nextChunkSize = Math.min(defaultChunkSize, remaining);
+    chunkSizes.push(nextChunkSize);
+    remaining -= nextChunkSize;
+  }
+
+  return chunkSizes;
+}
+
+async function uploadFileDirectlyToTikTok(input: {
+  file: File;
+  uploadUrl: string;
+  chunkSizes?: number[];
+}) {
+  const chunkSizes = input.chunkSizes?.length ? input.chunkSizes : buildTikTokChunkPlan(input.file.size);
+  let offset = 0;
+
+  for (const chunkSize of chunkSizes) {
+    const end = offset + chunkSize;
+    const chunk = input.file.slice(offset, end);
+    const response = await fetch(input.uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": input.file.type || "video/mp4",
+        "Content-Range": `bytes ${offset}-${end - 1}/${input.file.size}`,
+      },
+      body: chunk,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(errorText || `TikTok direct upload failed with status ${response.status}.`);
+    }
+
+    offset = end;
+  }
+}
+
+async function markTikTokDirectUploadResult(input: {
+  socialPostId: string;
+  success: boolean;
+  externalPostId?: string | null;
+  errorMessage?: string;
+}) {
+  await fetch("/api/automation/manual-post/tiktok-direct-complete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
   });
 }
 
@@ -236,6 +323,81 @@ export function ManualPostClientForm(props: {
         } else {
           formData.set("uploadedAssetTitle", selectedFile.name || "Manual upload");
         }
+      }
+
+      if (
+        selectedFile instanceof File &&
+        selectedFile.size &&
+        shouldUseDirectTikTokLocalUpload({
+          postType: postType as ManualPostType,
+          selectedAccountIds,
+          accounts: props.accounts,
+        })
+      ) {
+        const initResponse = await fetch("/api/automation/manual-post/tiktok-direct-init", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            accountIds: selectedAccountIds,
+            caption: String(formData.get("caption") || "").trim(),
+            fileSize: selectedFile.size,
+            fileType: selectedFile.type,
+          }),
+        });
+
+        const initData = (await initResponse.json().catch(() => ({}))) as {
+          error?: string;
+          sessions?: TikTokDirectUploadSession[];
+        };
+
+        if (!initResponse.ok || !initData.sessions?.length) {
+          throw new Error(initData.error || `TikTok direct upload setup failed with status ${initResponse.status}.`);
+        }
+
+        let posted = 0;
+        let failed = 0;
+        let firstError = "";
+
+        for (const session of initData.sessions) {
+          try {
+            await uploadFileDirectlyToTikTok({
+              file: selectedFile,
+              uploadUrl: session.uploadUrl,
+              chunkSizes: session.chunkSizes,
+            });
+
+            await markTikTokDirectUploadResult({
+              socialPostId: session.socialPostId,
+              success: true,
+              externalPostId: session.externalPostId,
+            });
+            posted += 1;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "TikTok direct upload failed.";
+            await markTikTokDirectUploadResult({
+              socialPostId: session.socialPostId,
+              success: false,
+              errorMessage: message,
+            });
+            failed += 1;
+
+            if (!firstError) {
+              firstError = message;
+            }
+          }
+        }
+
+        const redirectUrl = new URL("/automation", window.location.origin);
+        redirectUrl.searchParams.set("manual", "published");
+        redirectUrl.searchParams.set("posted", String(posted));
+        redirectUrl.searchParams.set("failed", String(failed));
+        if (firstError) {
+          redirectUrl.searchParams.set("tiktok", firstError);
+        }
+        window.location.href = redirectUrl.toString();
+        return;
       }
 
       const response = await fetch("/api/automation/manual-post", {

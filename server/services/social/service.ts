@@ -595,6 +595,63 @@ async function publishTikTokVideoBuffer(input: {
   return data.data?.publish_id || null;
 }
 
+async function initializeTikTokVideoUpload(input: {
+  account: SocialAccount;
+  fileSize: number;
+  caption: string;
+}) {
+  const accessToken = await ensureTikTokAccessToken(input.account);
+  const creatorInfo = await queryTikTokCreatorInfo(accessToken);
+  const privacyOptions = creatorInfo.data?.privacy_level_options || [];
+  const sandboxPreferredPrivacyLevel = privacyOptions.find((option) => option === "SELF_ONLY");
+  const publicPreferredPrivacyLevel = privacyOptions.find((option) => option === "PUBLIC_TO_EVERYONE");
+  const privacyLevel =
+    (env.TIKTOK_USE_SANDBOX ? sandboxPreferredPrivacyLevel : publicPreferredPrivacyLevel) ||
+    sandboxPreferredPrivacyLevel ||
+    publicPreferredPrivacyLevel ||
+    privacyOptions[0] ||
+    "SELF_ONLY";
+  const chunkSizes = getTikTokChunkPlan(input.fileSize);
+  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify({
+      post_info: {
+        title: trimCaption(input.caption, 2200) || trimCaption(DEFAULT_AUTOMATION_CAPTION_TEXT, 2200),
+        privacy_level: privacyLevel,
+        disable_comment: false,
+        disable_duet: false,
+        disable_stitch: false,
+        brand_organic_toggle: true,
+      },
+      source_info: {
+        source: "FILE_UPLOAD",
+        video_size: input.fileSize,
+        chunk_size: chunkSizes[0],
+        total_chunk_count: chunkSizes.length,
+      },
+    }),
+    cache: "no-store",
+  });
+  const data = (await response.json()) as {
+    data?: { publish_id?: string; upload_url?: string };
+    error?: { code?: string; message?: string };
+  };
+
+  if (!response.ok || data.error?.code !== "ok" || !data.data?.upload_url) {
+    throw new Error(normalizeTikTokPublishError(data.error?.message || "TikTok video publishing failed."));
+  }
+
+  return {
+    publishId: data.data.publish_id || null,
+    uploadUrl: data.data.upload_url,
+    chunkSizes,
+  };
+}
+
 export async function publishTikTokLocalVideoNow(input: {
   socialAccountId: string;
   file: File;
@@ -621,6 +678,78 @@ export async function publishTikTokLocalVideoNow(input: {
     mimeType,
     caption: trimCaption(input.caption, 2200) || trimCaption(DEFAULT_AUTOMATION_CAPTION_TEXT, 2200),
   });
+}
+
+export async function createTikTokDirectUploadSessions(input: {
+  churchId: string;
+  socialAccountIds: string[];
+  caption?: string | null;
+  fileSize: number;
+}) {
+  const accounts = await prisma.socialAccount.findMany({
+    where: {
+      churchId: input.churchId,
+      id: { in: input.socialAccountIds },
+      isActive: true,
+      platform: "TIKTOK",
+    },
+    orderBy: [{ accountLabel: "asc" }],
+  });
+
+  const sessions: Array<{
+    socialPostId: string;
+    socialAccountId: string;
+    accountLabel: string;
+    uploadUrl: string;
+    externalPostId: string | null;
+    chunkSizes: number[];
+  }> = [];
+  const caption = trimCaption(input.caption, 2200) || trimCaption(DEFAULT_AUTOMATION_CAPTION_TEXT, 2200);
+
+  for (const account of accounts) {
+    const post = await prisma.socialPost.create({
+      data: {
+        churchId: input.churchId,
+        socialAccountId: account.id,
+        title: null,
+        caption,
+        postType: "SHORT_VIDEO",
+        status: "READY",
+        scheduledFor: new Date(),
+      },
+    });
+
+    try {
+      const session = await initializeTikTokVideoUpload({
+        account,
+        fileSize: input.fileSize,
+        caption,
+      });
+
+      sessions.push({
+        socialPostId: post.id,
+        socialAccountId: account.id,
+        accountLabel: account.accountLabel,
+        uploadUrl: session.uploadUrl,
+        externalPostId: session.publishId,
+        chunkSizes: session.chunkSizes,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "TikTok upload session failed.";
+      await prisma.socialPost.update({
+        where: { id: post.id },
+        data: {
+          status: "FAILED",
+          lastAttemptAt: new Date(),
+          lastErrorCode: error instanceof Error ? error.name : "ERROR",
+          lastErrorMessage: message,
+        },
+      });
+      throw error;
+    }
+  }
+
+  return sessions;
 }
 
 async function publishYouTubePost(post: SocialPostWithRelations) {
