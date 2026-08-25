@@ -500,9 +500,6 @@ export function ManualPostClientForm(props: {
           <option value="STORY">Story</option>
           <option value="SHORT_VIDEO">Reel / short video</option>
         </select>
-        <div className="muted">
-          Feed posts and stories stay on Facebook/Instagram. TikTok and YouTube are reserved for short-video publishing in this CRM.
-        </div>
       </div>
 
       <div className="stack">
@@ -534,24 +531,10 @@ export function ManualPostClientForm(props: {
         />
         <div className="muted">Images are stored in the daily image bucket. Short videos are stored in the reels bucket.</div>
         {postType === "SHORT_VIDEO" ? (
-          getSelectedPlatformAccountIds({
-            selectedAccountIds,
-            accounts: props.accounts,
-            platform: "TIKTOK",
-          }).length ? (
-            <div className="muted">
-              TikTok short videos publish straight to TikTok from your browser. If Facebook, Instagram, or YouTube are also selected, the CRM still prepares their own publishing path separately.
-            </div>
-          ) : (
-            <div className="muted">
-              If you choose a video from your PC, the CRM will upload it into the Supabase <strong>REELS</strong> bucket first and then
-              publish from there. That keeps TikTok, YouTube, and the daily automation flow using the same storage path.
-            </div>
-          )
+          null
         ) : (
           <>
             <div className="muted">Images can still post directly when they stay under about 4 MB on Vercel.</div>
-            <div className="muted">Short videos use the REELS bucket workflow instead of direct browser upload.</div>
           </>
         )}
       </div>
@@ -578,17 +561,12 @@ export function ManualPostClientForm(props: {
               </option>
             ))}
           </select>
-          <div className="muted">Use this when you want to test TikTok or YouTube with a reel that is already stored in Supabase.</div>
-          {selectedReelUrl ? (
-            <div className="muted">Using a Supabase reel now. The local file input is turned off so the form does not try to use both sources at the same time.</div>
-          ) : null}
         </div>
       ) : null}
 
       <div className="stack">
         <label>Scheduled date and time</label>
         <input className="input" type="datetime-local" name="scheduledAt" />
-        <div className="muted">Use this only when you want to create a scheduled post.</div>
       </div>
 
       {submitError ? <div className="calendar-event">{submitError}</div> : null}

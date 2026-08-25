@@ -11,7 +11,9 @@ type AccountOption = {
 
 type ActionResult =
   | "images-queued"
+  | "images-no-supported-accounts"
   | "reels-queued"
+  | "reels-no-supported-accounts"
   | "images-paused"
   | "reels-paused"
   | "missing-accounts";
@@ -27,8 +29,16 @@ function getStatusMessage(result: ActionResult | null) {
     return "The daily image plan was queued successfully.";
   }
 
+  if (result === "images-no-supported-accounts") {
+    return "No selected account can receive daily image posts. TikTok is reel-only in this automation.";
+  }
+
   if (result === "reels-queued") {
     return "The daily reel plan was queued successfully.";
+  }
+
+  if (result === "reels-no-supported-accounts") {
+    return "No selected account can receive daily reel posts.";
   }
 
   if (result === "images-paused") {
@@ -114,6 +124,9 @@ export function AutoPostPlanForm(props: {
       </div>
       <div className="muted">
         Vercel Hobby cron runs once per day, so using one shared time keeps the image and reel plan aligned with the same daily publish window.
+      </div>
+      <div className="muted">
+        TikTok only joins the daily reel queue. Daily image plans only apply to platforms that support image posting.
       </div>
 
       <div className="toolbar toolbar-start">

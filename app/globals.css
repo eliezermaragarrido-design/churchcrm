@@ -53,6 +53,93 @@ textarea {
   padding: 32px;
 }
 
+.public-policy-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(33, 79, 66, 0.12), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(140, 107, 34, 0.12), transparent 28%),
+    var(--bg);
+}
+
+.public-policy-card {
+  width: min(860px, 100%);
+  background: linear-gradient(180deg, #fffdfa 0%, #faf6ee 100%);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  padding: 28px;
+  display: grid;
+  gap: 16px;
+}
+
+.public-policy-card h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+.public-policy-card h2 {
+  margin: 10px 0 0;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+
+.public-policy-card p {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--ink);
+}
+
+.public-kicker {
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--gold);
+}
+
+.public-policy-lead {
+  font-size: 1.08rem;
+  color: var(--muted);
+}
+
+.public-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.public-policy-grid article {
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.public-policy-nav {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+}
+
+.public-policy-nav a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
 .auth-card,
 .hero-card,
 .panel,
@@ -363,6 +450,11 @@ textarea {
 .table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
 }
 
 .table th,

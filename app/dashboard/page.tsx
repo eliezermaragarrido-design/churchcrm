@@ -5,14 +5,15 @@ import { SectionCard } from "@/components/layout/section-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Badge } from "@/components/layout/badge";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const now = new Date();
   const upcomingWindow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const [memberCount, calendarCount, campaignCount, upcomingEvents, latestMembers, latestCampaigns] = await Promise.all([
+  const [memberCount, calendarCount, upcomingEvents, latestMembers, latestPublishedPosts] = await Promise.all([
     prisma.member.count(),
     prisma.calendar.count(),
-    prisma.messageCampaign.count(),
     prisma.calendarEvent.findMany({
       where: { startsAt: { gte: now, lte: upcomingWindow } },
       include: { calendar: true },
@@ -23,16 +24,20 @@ export default async function DashboardPage() {
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
-    prisma.messageCampaign.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 5,
+    prisma.socialPost.findMany({
+      where: { churchId: "demo-church", status: "POSTED" },
+      include: {
+        socialAccount: true,
+      },
+      orderBy: { publishedAt: "desc" },
+      take: 8,
     }),
   ]);
 
   const metrics = [
     { label: "Members", value: String(memberCount), note: "People in the church directory" },
     { label: "Calendars", value: String(calendarCount), note: "Staff and public calendars" },
-    { label: "Messages", value: String(campaignCount), note: "Saved text campaigns" },
+    { label: "Published", value: String(latestPublishedPosts.length), note: "Latest published posts" },
     { label: "Upcoming", value: String(upcomingEvents.length), note: "Events in the next 7 days" },
   ];
 
@@ -43,13 +48,6 @@ export default async function DashboardPage() {
       currentPath="/dashboard"
       actions={<Link href="/members" className="button">Add member</Link>}
     >
-      <SectionCard title="Focus now">
-        <div className="toolbar">
-          <span className="muted">The core workflow is now centered on members, calendars, messages, and sermons.</span>
-          <Badge>Keep it simple</Badge>
-        </div>
-      </SectionCard>
-
       <section className="metrics-grid compact-metrics">
         {metrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} />
@@ -75,16 +73,6 @@ export default async function DashboardPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="What is already real">
-          <div className="list compact-list">
-            <div className="list-item"><span>Members can be added and deleted from the live directory.</span></div>
-            <div className="list-item"><span>Calendars support real event creation, deletion, and reminder preparation.</span></div>
-            <div className="list-item"><span>Messages can save campaigns and track Twilio send attempts.</span></div>
-          </div>
-        </SectionCard>
-      </section>
-
-      <section className="two-column">
         <SectionCard title="Latest members" action={<Link href="/members" className="muted">Open members</Link>}>
           <div className="list compact-list">
             {latestMembers.length ? (
@@ -102,21 +90,33 @@ export default async function DashboardPage() {
             )}
           </div>
         </SectionCard>
+      </section>
 
-        <SectionCard title="Latest text campaigns" action={<Link href="/messages" className="muted">Open messages</Link>}>
+      <section>
+        <SectionCard title="Latest published posts" action={<Link href="/automation" className="muted">Open automation</Link>}>
           <div className="list compact-list">
-            {latestCampaigns.length ? (
-              latestCampaigns.map((campaign) => (
-                <div key={campaign.id} className="list-item">
+            {latestPublishedPosts.length ? (
+              latestPublishedPosts.map((post) => (
+                <div key={post.id} className="list-item">
                   <div>
-                    <strong>{campaign.title}</strong>
-                    <div className="muted">{campaign.campaignType.replaceAll("_", " ")} - {campaign.body.slice(0, 72)}</div>
+                    <strong>{post.title || post.caption || "Untitled post"}</strong>
+                    <div className="muted">
+                      {post.socialAccount?.accountLabel || "Unassigned account"} - {post.postType.replaceAll("_", " ")}
+                    </div>
                   </div>
-                  <Badge>{campaign.status}</Badge>
+                  <div className="muted">
+                    {post.publishedAt ? new Intl.DateTimeFormat("en-US", {
+                      month: "numeric",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                      hour12: true,
+                    }).format(post.publishedAt) : "Today"}
+                  </div>
                 </div>
               ))
             ) : (
-              <div className="list-item"><span>No text campaigns yet.</span></div>
+              <div className="list-item"><span>No published posts yet.</span></div>
             )}
           </div>
         </SectionCard>

@@ -1,38 +1,24 @@
-import type { Metadata } from "next";
+import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "Privacy Policy | ChurchCRM",
-  description: "Privacy policy for ChurchCRM.",
-};
+export const metadata = { title: "Privacy Policy | ChurchCRM" };
 
 export default function PrivacyPage() {
   return (
-    <main className="marketing-shell">
-      <section className="marketing-card stack">
-        <p className="eyebrow">ChurchCRM</p>
+    <main className="public-policy-page">
+      <article className="public-policy-card">
+        <p className="public-kicker">ChurchCRM</p>
         <h1>Privacy Policy</h1>
-        <p className="muted">
-          ChurchCRM is used by churches and ministry teams to manage member communication,
-          scheduling, and publishing workflows.
-        </p>
-        <p>
-          We collect only the information needed to operate the product, such as account details,
-          connected social account information, communication records, and content scheduling data.
-        </p>
-        <p>
-          We do not sell personal information. Data is used only to provide the CRM experience,
-          automate approved workflows, and support church operations.
-        </p>
-        <p>
-          Connected platform data, such as Facebook Page or Instagram account information, is used
-          only for account connection, scheduling, and publishing actions authorized by the user.
-        </p>
-        <p>
-          If you have questions about this policy or want data removed, contact the organization
-          operating your ChurchCRM workspace.
-        </p>
-      </section>
+        <p>First Methodist Church of Dimmitt operates ChurchCRM for authorized church staff and volunteers.</p>
+        <h2>Information we use</h2>
+        <p>We use account, member, contact, calendar, communication, media, and connected social-account information to operate church services, send requested notifications, schedule approved content, and protect the workspace.</p>
+        <h2>How we share information</h2>
+        <p>We do not sell personal information or phone numbers. We use service providers such as Supabase, Vercel, Twilio, and connected social platforms only to provide the requested CRM features and protect the service. We do not share mobile numbers with third parties for their own marketing.</p>
+        <h2>SMS communications</h2>
+        <p>Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. SMS messages are limited to church-related communication requested by the recipient or authorized by the church.</p>
+        <h2>Contact</h2>
+        <p>Questions about privacy can be sent to <a href="mailto:office@fumcdimmitt.org">office@fumcdimmitt.org</a>.</p>
+        <nav className="public-policy-nav"><Link href={{ pathname: "/terms" }}>Terms</Link><Link href={{ pathname: "/sms-consent" }}>SMS consent</Link><Link href={{ pathname: "/contact" }}>Contact</Link><Link href={{ pathname: "/" }}>Home</Link></nav>
+      </article>
     </main>
   );
 }
-

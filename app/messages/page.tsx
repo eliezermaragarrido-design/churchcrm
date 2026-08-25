@@ -11,6 +11,8 @@ import {
   sendCampaignAction,
 } from "./actions";
 
+export const dynamic = "force-dynamic";
+
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -90,27 +92,18 @@ export default async function MessagesPage() {
       currentPath="/messages"
       actions={<Badge>{reachableMembers.length} reachable members</Badge>}
     >
-      <section className="hero-card">
-        <div className="stack">
-          <p className="kicker">Twilio messaging center</p>
-          <h3 className="card-title">Keep the texting workflow simple and clear.</h3>
-          <p className="page-subtitle">
-            Save church-wide message drafts, build reminder campaigns from published events, and see exactly why any Twilio delivery failed.
-          </p>
+      <section className="metrics-grid compact-metrics">
+        <div className="metric-card">
+          <p className="muted">Reachable members</p>
+          <div className="metric-value">{reachableMembers.length}</div>
         </div>
-        <div className="metrics-grid">
-          <div className="panel panel-soft">
-            <strong className="metric-value">{reachableMembers.length}</strong>
-            <p className="muted">reachable members</p>
-          </div>
-          <div className="panel panel-soft">
-            <strong className="metric-value">{tomorrowEvents.length}</strong>
-            <p className="muted">tomorrow reminders ready</p>
-          </div>
-          <div className="panel panel-soft">
-            <strong className="metric-value">{sentCampaigns.length}</strong>
-            <p className="muted">sent campaign records</p>
-          </div>
+        <div className="metric-card">
+          <p className="muted">Tomorrow reminders</p>
+          <div className="metric-value">{tomorrowEvents.length}</div>
+        </div>
+        <div className="metric-card">
+          <p className="muted">Sent campaigns</p>
+          <div className="metric-value">{sentCampaigns.length}</div>
         </div>
       </section>
 
@@ -126,7 +119,6 @@ export default async function MessagesPage() {
             </select>
             <textarea className="textarea" name="body" rows={5} placeholder="Write the text that should go to church members" required />
             <div className="toolbar">
-              <span className="muted">This version is church-wide only, using active members with valid mobile numbers who have not opted out.</span>
               <button className="button" type="submit">Save text campaign</button>
             </div>
           </form>
@@ -183,12 +175,9 @@ export default async function MessagesPage() {
 
       <section className="two-column">
         <SectionCard title="Campaign history" action={<Badge>{campaigns.length} campaigns</Badge>}>
-          <div className="toolbar">
-            <span className="muted">These campaign records stay visible even if the source event is later deleted. Delete old test campaigns when you no longer need them.</span>
-            <form action={clearOldCampaignsAction}>
-              <button className="button secondary" type="submit">Clear draft/failed tests</button>
-            </form>
-          </div>
+          <form action={clearOldCampaignsAction}>
+            <button className="button secondary" type="submit">Clear old tests</button>
+          </form>
           <div className="calendar-day-list">
             {campaigns.length ? campaigns.map((campaign) => (
               <div key={campaign.id} className="calendar-event">
@@ -237,15 +226,6 @@ export default async function MessagesPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Message health">
-          <div className="list">
-            <div className="list-item"><span>Reachable members right now</span><strong>{reachableMembers.length}</strong></div>
-            <div className="list-item"><span>Published reminder-ready events</span><strong>{publishedEvents.length}</strong></div>
-            <div className="list-item"><span>Campaigns already sent</span><strong>{sentCampaigns.length}</strong></div>
-            <div className="list-item"><span>Twilio connection</span><strong>{isTwilioReady ? "Configured" : "Not fully configured"}</strong></div>
-            <div className="list-item"><span>Opt-out protection</span><strong>Connected to member record</strong></div>
-          </div>
-        </SectionCard>
       </section>
     </AppShell>
   );

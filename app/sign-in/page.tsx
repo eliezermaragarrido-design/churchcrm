@@ -7,9 +7,9 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   return (
     <main className="marketing-shell">
       <section className="auth-card">
-        <p className="kicker">Church staff sign in</p>
-        <h1 className="page-title" style={{ fontSize: "2.5rem" }}>Welcome back</h1>
-        <p className="page-subtitle">Use Supabase auth for staff login. If env vars are not set yet, preview mode still opens the dashboard.</p>
+        <p className="kicker">Church staff access</p>
+        <h1 className="page-title" style={{ fontSize: "2.5rem" }}>Staff access</h1>
+        <p className="page-subtitle">Use this page only if staff login is enabled for the workspace.</p>
         <form action={signInAction} className="stack" style={{ marginTop: 20 }}>
           <label>
             <span className="muted">Email</span>
@@ -21,7 +21,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           </label>
           {params.error ? <p className="pill danger">{params.error}</p> : null}
           <button className="button" type="submit">Sign in</button>
-          <Link href="/dashboard" className="button secondary">Preview dashboard</Link>
+          <Link href="/" className="button secondary">Back to home</Link>
         </form>
       </section>
     </main>

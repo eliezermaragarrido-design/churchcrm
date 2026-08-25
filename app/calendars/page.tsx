@@ -10,6 +10,8 @@ import {
 } from "./actions";
 import { CalendarEventForm } from "./calendar-event-form";
 
+export const dynamic = "force-dynamic";
+
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",

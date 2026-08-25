@@ -4,7 +4,7 @@ import { listMatchingBucketFiles } from "@/lib/automation/buckets";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuthContext } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { getTikTokScopeString, isTikTokConfigured } from "@/lib/social/tiktok";
+import { isTikTokConfigured } from "@/lib/social/tiktok";
 import { isYouTubeConfigured } from "@/lib/social/youtube";
 import { AppShell } from "@/components/layout/app-shell";
 import { SectionCard } from "@/components/layout/section-card";
@@ -24,17 +24,7 @@ import { ManualPostClientForm } from "./manual-post-client-form";
 
 const META_PENDING_COOKIE = "meta_pending_pages";
 
-function maskSecret(value: string | undefined) {
-  if (!value) {
-    return "missing";
-  }
-
-  if (value.length <= 6) {
-    return `${value.slice(0, 2)}***`;
-  }
-
-  return `${value.slice(0, 4)}...${value.slice(-4)}`;
-}
+export const dynamic = "force-dynamic";
 
 function getPlatformLabel(platform: string) {
   if (platform === "FACEBOOK_PAGE") {
@@ -54,134 +44,6 @@ function getPlatformLabel(platform: string) {
   }
 
   return platform.replaceAll("_", " ");
-}
-
-function getPostTypeLabel(postType: string) {
-  if (postType === "FEED_POST") {
-    return "Feed";
-  }
-
-  if (postType === "STORY") {
-    return "Story";
-  }
-
-  if (postType === "SHORT_VIDEO") {
-    return "Reel";
-  }
-
-  return postType.replaceAll("_", " ");
-}
-
-function isGeneratedAutomationLabel(value: string | null | undefined) {
-  const normalized = String(value || "").trim().toLowerCase();
-
-  if (!normalized) {
-    return false;
-  }
-
-  return (
-    /^daily (image|reel)\s+\d{1,3}$/.test(normalized) ||
-    /^day \d{1,3} (image|reel) post$/.test(normalized)
-  );
-}
-
-function getQueuePreview(post: {
-  title: string | null;
-  caption: string | null;
-  asset: { title: string | null } | null;
-}) {
-  const caption = String(post.caption || "").trim();
-  const title = String(post.title || "").trim();
-  const assetTitle = String(post.asset?.title || "").trim();
-
-  return (
-    (!isGeneratedAutomationLabel(caption) ? caption : "") ||
-    (!isGeneratedAutomationLabel(title) ? title : "") ||
-    (!isGeneratedAutomationLabel(assetTitle) ? assetTitle : "") ||
-    "🙏🙌"
-  );
-}
-
-function formatAutomationDate(date: Date) {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago",
-    month: "numeric",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(date);
-}
-
-function getQueueDisplayText(post: {
-  title: string | null;
-  caption: string | null;
-  asset: { title: string | null } | null;
-}) {
-  const preview = getQueuePreview(post);
-
-  if (preview.includes("ðŸ")) {
-    return "\u{1F64F}\u{1F3FC}\u{1F64C}\u{1F3FD}";
-  }
-
-  return preview;
-}
-
-function getManualStatusMessage(status: string | null, posted: string | null, failed: string | null) {
-  if (!status) {
-    return null;
-  }
-
-  if (status === "published") {
-    return `Publish attempted now. Posted: ${posted || "0"}. Failed: ${failed || "0"}.`;
-  }
-
-  if (status === "scheduled") {
-    return "Scheduled post created successfully.";
-  }
-
-  if (status === "missing-accounts") {
-    return "Select at least one connected account.";
-  }
-
-  if (status === "missing-content") {
-    return "Add a caption or upload a media file before submitting.";
-  }
-
-  return `Manual post error: ${status}`;
-}
-
-function getManualStatusFeedback(status: string | null, posted: string | null, failed: string | null) {
-  if (status !== "published") {
-    return null;
-  }
-
-  const postedCount = Number(posted || 0);
-  const failedCount = Number(failed || 0);
-
-  if (postedCount > 0 && failedCount === 0) {
-    return {
-      tone: "success" as const,
-      message: `Subido correctamente. ${postedCount} publicacion${postedCount === 1 ? "" : "es"} confirmada${postedCount === 1 ? "" : "s"} sin errores.`,
-    };
-  }
-
-  if (postedCount > 0 && failedCount > 0) {
-    return {
-      tone: "warning" as const,
-      message: `Publicacion parcial. ${postedCount} publicadas y ${failedCount} con error.`,
-    };
-  }
-
-  if (failedCount > 0) {
-    return {
-      tone: "error" as const,
-      message: `La publicacion no se completo. ${failedCount} intento${failedCount === 1 ? "" : "s"} fallaron.`,
-    };
-  }
-
-  return null;
 }
 
 function getAutoplanStatusMessage(status: string | null) {
@@ -220,9 +82,6 @@ export default async function AutomationPage(props: {
   const metaStatus = typeof resolvedSearchParams.meta === "string" ? resolvedSearchParams.meta : null;
   const tiktokStatus = typeof resolvedSearchParams.tiktok === "string" ? resolvedSearchParams.tiktok : null;
   const youtubeStatus = typeof resolvedSearchParams.youtube === "string" ? resolvedSearchParams.youtube : null;
-  const manualStatus = typeof resolvedSearchParams.manual === "string" ? resolvedSearchParams.manual : null;
-  const manualPosted = typeof resolvedSearchParams.posted === "string" ? resolvedSearchParams.posted : null;
-  const manualFailed = typeof resolvedSearchParams.failed === "string" ? resolvedSearchParams.failed : null;
   const autoplanStatus = typeof resolvedSearchParams.autoplan === "string" ? resolvedSearchParams.autoplan : null;
 
   const rawPendingSelection = cookieStore.get(META_PENDING_COOKIE)?.value;
@@ -297,37 +156,10 @@ export default async function AutomationPage(props: {
     failed: socialPostStats.find((item) => item.status === "FAILED")?._count._all ?? 0,
   };
 
-  const failedPosts = await prisma.socialPost.findMany({
-    where: {
-      churchId: auth.churchId,
-      status: "FAILED",
-    },
-    include: {
-      socialAccount: true,
-    },
-    orderBy: [{ updatedAt: "desc" }],
-    take: 5,
-  });
-  const queuedPosts = await prisma.socialPost.findMany({
-    where: {
-      churchId: auth.churchId,
-      status: { in: ["READY", "SCHEDULED"] },
-    },
-    include: {
-      asset: true,
-      socialAccount: true,
-    },
-    orderBy: [{ scheduledFor: "asc" }, { createdAt: "desc" }],
-    take: 10,
-  });
-
   const visiblePendingSelections =
     pendingProvider === "instagram"
       ? pendingSelections.filter((page) => page.instagram)
       : pendingSelections;
-  const tiktokScopeString = getTikTokScopeString();
-  const manualStatusMessage = getManualStatusMessage(manualStatus, manualPosted, manualFailed);
-  const manualStatusFeedback = getManualStatusFeedback(manualStatus, manualPosted, manualFailed);
   const autoplanStatusMessage = getAutoplanStatusMessage(autoplanStatus);
 
   return (
@@ -343,27 +175,14 @@ export default async function AutomationPage(props: {
         </form>
       }
     >
-      <section>
-        <SectionCard title="Automation status">
-          <div className="list compact-list">
-            <div className="list-item"><span>Daily images synced</span><strong>{imageAssetCount}</strong></div>
-            <div className="list-item"><span>Daily reels synced</span><strong>{reelAssetCount}</strong></div>
-            <div className="list-item"><span>Posts ready now</span><strong>{statsByStatus.ready}</strong></div>
-            <div className="list-item"><span>Posts scheduled</span><strong>{statsByStatus.scheduled}</strong></div>
-            <div className="list-item"><span>Posts already published</span><strong>{statsByStatus.posted}</strong></div>
-            <div className="list-item"><span>Posts failed</span><strong>{statsByStatus.failed}</strong></div>
-          </div>
-        </SectionCard>
-      </section>
 
-      {metaStatus || tiktokStatus || youtubeStatus || manualStatusMessage ? (
+      {metaStatus || tiktokStatus || youtubeStatus ? (
         <section>
           <SectionCard title="Connection status">
             <div className="list compact-list">
               {metaStatus ? <div className="list-item"><span>Meta</span><strong>{metaStatus}</strong></div> : null}
               {tiktokStatus ? <div className="list-item"><span>TikTok</span><strong>{tiktokStatus}</strong></div> : null}
               {youtubeStatus ? <div className="list-item"><span>YouTube</span><strong>{youtubeStatus}</strong></div> : null}
-              {manualStatusMessage ? <div className="list-item"><span>Manual post</span><strong>{manualStatusMessage}</strong></div> : null}
             </div>
           </SectionCard>
         </section>
@@ -425,22 +244,6 @@ export default async function AutomationPage(props: {
 
         <SectionCard title="Connect">
           <div className="stack">
-            <p className="muted">Connect each destination once, then the scheduler can publish directly from Supabase assets.</p>
-            <div className="calendar-event">
-              <strong>Meta testing note</strong>
-              <div className="muted">
-                One Meta app can import many Facebook pages and Instagram accounts. While the app is still in development mode,
-                each Facebook user who connects must be added to the Meta app as an admin, developer, or tester.
-              </div>
-              <div className="muted">
-                If Meta keeps reopening the same Facebook login, try the connect button in an incognito window or after logging out
-                of Facebook first, then choose the other account.
-              </div>
-              <div className="muted">
-                Example: if you already connected your personal Facebook user, open a private window, sign in with the separate
-                Facebook user that owns the church pages, then connect Facebook again and import those pages too.
-              </div>
-            </div>
             <div className="toolbar toolbar-start wrap-toolbar">
               {isMetaConfigured() ? (
                 <>
@@ -476,29 +279,6 @@ export default async function AutomationPage(props: {
                 </button>
               )}
             </div>
-            <div className="muted">
-              YouTube automation is for short videos only. In this CRM flow, TikTok is also treated as a short-video destination so
-              the manual post form and the daily reel plan stay aligned with what is actually supported today.
-            </div>
-            {!isYouTubeConfigured() ? (
-              <div className="muted">
-                YouTube is currently unavailable because the Google OAuth environment variables are still missing in this deployment.
-              </div>
-            ) : null}
-            {env.TIKTOK_USE_SANDBOX ? (
-              <div className="muted">
-                TikTok sandbox mode is enabled. Login works in sandbox, but live publishing still depends on the TikTok app approval
-                level and the connected account permissions.
-              </div>
-            ) : null}
-            <div className="calendar-event">
-              <strong>TikTok diagnostic</strong>
-              <div className="muted">Client key: {maskSecret(env.TIKTOK_CLIENT_KEY)}</div>
-              <div className="muted">Redirect URI: {env.TIKTOK_REDIRECT_URI || "missing"}</div>
-              <div className="muted">Scopes: {tiktokScopeString}</div>
-              <div className="muted">Current CRM use: short-video publishing</div>
-              <div className="muted">Sandbox mode: {env.TIKTOK_USE_SANDBOX ? "enabled" : "disabled"}</div>
-            </div>
           </div>
         </SectionCard>
       </section>
@@ -524,19 +304,6 @@ export default async function AutomationPage(props: {
 
       <section className="two-column narrow-right">
         <SectionCard title="Post once">
-          {manualStatusFeedback ? (
-            <div
-              className={`calendar-event action-feedback ${
-                manualStatusFeedback.tone === "success"
-                  ? "success"
-                  : manualStatusFeedback.tone === "warning"
-                    ? "warning"
-                    : "error"
-              }`}
-            >
-              {manualStatusFeedback.message}
-            </div>
-          ) : null}
           <ManualPostClientForm
             accounts={socialAccounts.map((account) => ({
               id: account.id,
@@ -546,57 +313,6 @@ export default async function AutomationPage(props: {
             }))}
             reelLibraryOptions={reelLibraryOptions}
           />
-        </SectionCard>
-
-        <SectionCard title="Queue">
-          <div className="list compact-list">
-            {queuedPosts.length ? (
-              queuedPosts.map((post) => (
-                <div key={post.id} className="list-item">
-                  <div>
-                    <strong>{getQueueDisplayText(post)}</strong>
-                    <div className="muted">
-                      {getPostTypeLabel(post.postType)}
-                      {" | "}
-                      {post.socialAccount?.accountLabel || "Unassigned account"}
-                    </div>
-                    {post.asset?.title && !isGeneratedAutomationLabel(post.asset.title) ? (
-                      <div className="muted">Media: {post.asset.title}</div>
-                    ) : null}
-                  </div>
-                  <div className="muted">
-                    {post.status === "READY" ? "Ready now" : post.scheduledFor ? formatAutomationDate(post.scheduledFor) : "Queued"}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="list-item">
-                <span>No queued posts yet.</span>
-              </div>
-            )}
-          </div>
-        </SectionCard>
-      </section>
-
-      <section>
-        <SectionCard title="Recent publish failures">
-          <div className="list compact-list">
-            {failedPosts.length ? (
-              failedPosts.map((post) => (
-                <div key={post.id} className="list-item">
-                  <div>
-                    <strong>{post.socialAccount?.accountLabel || "Unknown account"}</strong>
-                    <div className="muted">{getPostTypeLabel(post.postType)}</div>
-                  </div>
-                  <div className="muted">{post.lastErrorMessage || "Publish failed"}</div>
-                </div>
-              ))
-            ) : (
-              <div className="list-item">
-                <span>No failed posts yet.</span>
-              </div>
-            )}
-          </div>
         </SectionCard>
       </section>
     </AppShell>

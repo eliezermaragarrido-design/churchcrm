@@ -1,40 +1,24 @@
-import type { Metadata } from "next";
+import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "Terms of Service | ChurchCRM",
-  description: "Terms of service for ChurchCRM.",
-};
+export const metadata = { title: "Terms of Service | ChurchCRM" };
 
 export default function TermsPage() {
   return (
-    <main className="marketing-shell">
-      <section className="marketing-card stack">
-        <p className="eyebrow">ChurchCRM</p>
+    <main className="public-policy-page">
+      <article className="public-policy-card">
+        <p className="public-kicker">ChurchCRM</p>
         <h1>Terms of Service</h1>
-        <p className="muted">
-          ChurchCRM provides church offices and ministry teams with tools for member management,
-          calendars, messaging, and automated social media publishing.
-        </p>
-        <p>
-          By using ChurchCRM, you confirm that you are authorized to manage the connected accounts,
-          publish the uploaded media, and schedule or send communications on behalf of your church or ministry organization.
-        </p>
-        <p>
-          Users are responsible for the accuracy of their content, the legality of their communications,
-          and compliance with the platform rules of TikTok, Meta, YouTube, Twilio, and any other connected services.
-        </p>
-        <p>
-          ChurchCRM may store account connection details, media references, scheduling records, and publishing logs
-          only as needed to provide the service and troubleshoot authorized workflows.
-        </p>
-        <p>
-          Access to the service may be suspended or removed if the platform is used for spam, abuse, unauthorized posting,
-          or any activity that violates applicable law or third-party platform policies.
-        </p>
-        <p>
-          If you need support, policy clarification, or data removal help, contact the organization operating your ChurchCRM workspace.
-        </p>
-      </section>
+        <p>ChurchCRM is a ministry operations platform for authorized First Methodist Church of Dimmitt staff and volunteers.</p>
+        <h2>Acceptable use</h2>
+        <p>Use the service only for lawful church operations. Do not use it for spam, deception, harassment, unlawful content, unauthorized access, or communications to people who have not requested them.</p>
+        <h2>Messages and media</h2>
+        <p>Users are responsible for recipient consent, accurate content, and rights to uploaded media. SMS recipients may reply STOP to opt out or HELP for help; message and data rates may apply. We may pause or remove access if someone uses the service for unauthorized messaging or policy violations.</p>
+        <h2>Third-party services</h2>
+        <p>Publishing and messaging depend on third-party permissions, availability, and policies. Connected accounts must remain authorized and in good standing. Users are responsible for complying with the rules of TikTok, Meta, YouTube, and Twilio when they use those integrations.</p>
+        <h2>Contact</h2>
+        <p>Questions can be sent to <a href="mailto:office@fumcdimmitt.org">office@fumcdimmitt.org</a>.</p>
+        <nav className="public-policy-nav"><Link href={{ pathname: "/privacy" }}>Privacy</Link><Link href={{ pathname: "/sms-consent" }}>SMS consent</Link><Link href={{ pathname: "/contact" }}>Contact</Link><Link href={{ pathname: "/" }}>Home</Link></nav>
+      </article>
     </main>
   );
 }

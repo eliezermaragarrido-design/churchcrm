@@ -80,6 +80,31 @@ function getAllowedPostTypes(platform: SocialPlatform) {
   };
 }
 
+async function getSchedulableAccountIds(input: {
+  churchId: string;
+  selectedAccountIds: string[];
+  postType: SocialPostType;
+}) {
+  const accounts = await prisma.socialAccount.findMany({
+    where: {
+      churchId: input.churchId,
+      id: { in: input.selectedAccountIds },
+      isActive: true,
+    },
+    select: {
+      id: true,
+      platform: true,
+    },
+  });
+
+  return accounts
+    .filter((account) => {
+      const allowed = getAllowedPostTypes(account.platform);
+      return input.postType === "FEED_POST" ? allowed.image : allowed.reel;
+    })
+    .map((account) => account.id);
+}
+
 function getChicagoUtcOffsetMinutes(date: Date) {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Chicago",
@@ -442,6 +467,16 @@ export async function scheduleYearImagesAction(formData: FormData) {
     return "missing-accounts";
   }
 
+  const schedulableAccountIds = await getSchedulableAccountIds({
+    churchId: auth.churchId,
+    selectedAccountIds,
+    postType: "FEED_POST",
+  });
+
+  if (!schedulableAccountIds.length) {
+    return "images-no-supported-accounts";
+  }
+
   const { year, dayOfYear } = getChicagoYearDayInfo();
 
   await syncBucketAssets({
@@ -454,7 +489,7 @@ export async function scheduleYearImagesAction(formData: FormData) {
 
   await scheduleAnnualPlan({
     churchId: auth.churchId,
-    selectedAccountIds,
+    selectedAccountIds: schedulableAccountIds,
     assetType: "DAILY_IMAGE",
     postType: "FEED_POST",
     year,
@@ -476,6 +511,16 @@ export async function scheduleYearReelsAction(formData: FormData) {
     return "missing-accounts";
   }
 
+  const schedulableAccountIds = await getSchedulableAccountIds({
+    churchId: auth.churchId,
+    selectedAccountIds,
+    postType: "SHORT_VIDEO",
+  });
+
+  if (!schedulableAccountIds.length) {
+    return "reels-no-supported-accounts";
+  }
+
   const { year, dayOfYear } = getChicagoYearDayInfo();
 
   await syncBucketAssets({
@@ -488,7 +533,7 @@ export async function scheduleYearReelsAction(formData: FormData) {
 
   await scheduleAnnualPlan({
     churchId: auth.churchId,
-    selectedAccountIds,
+    selectedAccountIds: schedulableAccountIds,
     assetType: "DEVOTIONAL_VIDEO",
     postType: "SHORT_VIDEO",
     year,
@@ -509,9 +554,19 @@ export async function pauseYearImagesAction(formData: FormData) {
     return "missing-accounts";
   }
 
-  await pauseAnnualPlan({
+  const schedulableAccountIds = await getSchedulableAccountIds({
     churchId: auth.churchId,
     selectedAccountIds,
+    postType: "FEED_POST",
+  });
+
+  if (!schedulableAccountIds.length) {
+    return "images-no-supported-accounts";
+  }
+
+  await pauseAnnualPlan({
+    churchId: auth.churchId,
+    selectedAccountIds: schedulableAccountIds,
     assetType: "DAILY_IMAGE",
     postType: "FEED_POST",
   });
@@ -528,9 +583,19 @@ export async function pauseYearReelsAction(formData: FormData) {
     return "missing-accounts";
   }
 
-  await pauseAnnualPlan({
+  const schedulableAccountIds = await getSchedulableAccountIds({
     churchId: auth.churchId,
     selectedAccountIds,
+    postType: "SHORT_VIDEO",
+  });
+
+  if (!schedulableAccountIds.length) {
+    return "reels-no-supported-accounts";
+  }
+
+  await pauseAnnualPlan({
+    churchId: auth.churchId,
+    selectedAccountIds: schedulableAccountIds,
     assetType: "DEVOTIONAL_VIDEO",
     postType: "SHORT_VIDEO",
   });
