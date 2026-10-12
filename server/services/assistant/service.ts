@@ -134,15 +134,16 @@ function mp3Chunks(data: Uint8Array) {
   return chunks;
 }
 
-async function transcribeMeetingAudio(client: OpenAI, fileName: string, contentType: string, bytes: Uint8Array) {
+async function transcribeMeetingAudio(client: OpenAI, fileName: string, contentType: string, bytes: Uint8Array, prior: string[], savePart: (parts: string[], total: number) => Promise<void>) {
   const extension = fileName.toLowerCase().split(".").pop() || "";
   const chunks = bytes.length <= MAX_TRANSCRIPTION_BYTES ? [bytes] : extension === "mp3" ? mp3Chunks(bytes) : [];
   if (!chunks.length) throw new Error("For recordings larger than 24 MB, export MP3 audio before uploading. The transcription service limits each audio part to 25 MB.");
-  const transcript: string[] = [];
-  for (let index = 0; index < chunks.length; index++) {
+  const transcript = [...prior];
+  for (let index = transcript.length; index < chunks.length; index++) {
     const part = new File([chunks[index]], chunks.length === 1 ? fileName : `${fileName.replace(/\.mp3$/i, "")}-part-${index + 1}.mp3`, { type: contentType || "audio/mpeg" });
     const result = await client.audio.transcriptions.create({ model: "gpt-transcribe" as any, file: part, prompt: transcript.length ? `Continue this church meeting. The previous section ended: ${transcript.join(" ").slice(-1200)}` : "Church council meeting. Preserve names, dates, decisions, assignments, and deadlines exactly when spoken." });
     transcript.push(result.text);
+    await savePart(transcript, chunks.length);
   }
   return transcript.join("\n\n");
 }
@@ -164,25 +165,46 @@ async function summarizeMeetingTranscript(client: OpenAI, transcript: string) {
   throw new Error("Meeting minutes need editorial attention. Please retry the saved recording.");
 }
 
+export async function meetingJobSummary(churchId: string, documentId: string) {
+  const document = await prisma.documentRequest.findFirst({ where: { id: documentId, churchId }, select: { id: true, status: true, inputJson: true } });
+  if (!document) throw new Error("Meeting recording not found.");
+  const info = JSON.parse(document.inputJson || "{}");
+  return { id: document.id, status: document.status, progress: info.progress || info.stage || "Preparing meeting minutes.", error: info.error || null, retryAt: info.retryAt || null };
+}
+
 export async function processMeetingUpload(churchId: string, documentId: string) {
-  const document = await prisma.documentRequest.findFirst({ where: { id: documentId, churchId, status: { in: ["queued", "processing"] } } });
-  if (!document) throw new Error("Meeting recording not found or already completed.");
+  const document = await prisma.documentRequest.findFirst({ where: { id: documentId, churchId } });
+  if (!document) throw new Error("Meeting recording not found.");
+  if (document.status === "generated") return meetingJobSummary(churchId, documentId);
+  const claimed = await prisma.documentRequest.updateMany({ where: { id: documentId, churchId, OR: [{ status: "queued" }, { status: "processing", updatedAt: { lt: new Date(Date.now() - 180000) } }] }, data: { status: "processing" } });
+  if (!claimed.count) return meetingJobSummary(churchId, documentId);
+  const locked = await prisma.documentRequest.findUniqueOrThrow({ where: { id: documentId } });
   const info = JSON.parse(document.inputJson || "{}");
   if (!info.tempPath) throw new Error("Meeting audio upload is missing.");
-  await prisma.documentRequest.update({ where: { id: documentId }, data: { status: "processing", inputJson: JSON.stringify({ ...info, stage: "transcribing" }) } });
   const storage = createSupabaseAdminClient().storage.from(env.SUPABASE_UPLOAD_BUCKET);
+  let finished = false;
   try {
     const downloaded = await storage.download(info.tempPath);
     if (downloaded.error || !downloaded.data) throw new Error("Temporary meeting audio was not found.");
-    const transcript = await transcribeMeetingAudio(getOpenAIClient(), info.fileName, info.fileType, new Uint8Array(await downloaded.data.arrayBuffer()));
+    const transcript = await transcribeMeetingAudio(getOpenAIClient(), info.fileName, info.fileType, new Uint8Array(await downloaded.data.arrayBuffer()), info.transcriptParts || [], async (transcriptParts, total) => {
+      info.transcriptParts = transcriptParts;
+      info.stage = "transcribing"; info.progress = `Transcribed ${transcriptParts.length} of ${total} audio parts.`; info.error = null;
+      await prisma.documentRequest.update({ where: { id: documentId }, data: { status: "processing", inputJson: JSON.stringify(info) } });
+    });
+    info.stage = "writing"; info.progress = "Preparing the meeting minutes.";
+    await prisma.documentRequest.update({ where: { id: documentId }, data: { status: "processing", inputJson: JSON.stringify(info) } });
     const minutes = await summarizeMeetingTranscript(getOpenAIClient(), transcript);
-    await prisma.documentRequest.update({ where: { id: documentId }, data: { status: "generated", generatedBody: JSON.stringify(minutes), inputJson: JSON.stringify({ fileName: info.fileName, fileSize: info.fileSize, stage: "complete" }) } });
-    return minutes;
+    await prisma.documentRequest.update({ where: { id: documentId }, data: { status: "generated", generatedBody: JSON.stringify(minutes), inputJson: JSON.stringify({ fileName: info.fileName, fileSize: info.fileSize, stage: "complete", progress: "Meeting minutes ready." }) } });
+    finished = true;
+    return meetingJobSummary(churchId, documentId);
   } catch (error) {
-    await prisma.documentRequest.update({ where: { id: documentId }, data: { status: "failed", inputJson: JSON.stringify({ fileName: info.fileName, fileSize: info.fileSize, stage: "failed", error: error instanceof Error ? error.message : "Meeting processing failed." }) } });
+    info.failures = (info.failures || 0) + 1;
+    info.retryAt = Date.now() + Math.min(60000, 3000 * 2 ** Math.min(info.failures - 1, 5));
+    info.stage = "retrying"; info.progress = "Retrying the saved meeting preparation automatically."; info.error = error instanceof Error ? error.message : "Meeting processing failed.";
+    await prisma.documentRequest.updateMany({ where: { id: documentId, updatedAt: { gte: locked.updatedAt } }, data: { status: "queued", inputJson: JSON.stringify(info) } });
     throw error;
   } finally {
-    await storage.remove([info.tempPath]);
+    if (finished) await storage.remove([info.tempPath]);
   }
 }
 

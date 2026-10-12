@@ -4,6 +4,17 @@ import { prisma } from "@/lib/db/prisma";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { handleRouteError } from "@/lib/api";
+import { meetingJobSummary } from "@/server/services/assistant/service";
+
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { churchId } = await requireAuthContext();
+    const { id } = await params;
+    return NextResponse.json({ data: { job: await meetingJobSummary(churchId, id) } });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {

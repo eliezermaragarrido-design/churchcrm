@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { strFromU8, unzipSync } from "fflate";
 import * as tus from "tus-js-client";
 
@@ -37,6 +37,35 @@ export function QuickAiForm({ kind, accept, label, endpoint }: { kind: "audio" |
   const [download, setDownload] = useState("");
   const [pending, setPending] = useState(false);
   const [generatedOnce, setGeneratedOnce] = useState(false);
+  const [meetingId, setMeetingId] = useState("");
+  useEffect(() => {
+    if (kind !== "audio") return;
+    try { setMeetingId(sessionStorage.getItem("meeting-minutes-pending") || ""); } catch { /* A browser without storage still finishes while this page stays open. */ }
+  }, [kind]);
+  useEffect(() => {
+    if (kind !== "audio" || !meetingId) return;
+    let active = true, timer: ReturnType<typeof setTimeout>;
+    const schedule = (delay: number) => { if (active) timer = setTimeout(() => void continueMeeting(), delay); };
+    const continueMeeting = async () => {
+      try {
+        const response = await fetch(`${endpoint}/${meetingId}/process`, { method: "POST" });
+        const result = await response.json().catch(() => ({}));
+        const job = result.data?.job;
+        if (!active) return;
+        if (job?.status === "generated") {
+          setDownload(result.data.downloadUrl || `${endpoint}/${meetingId}/download`); setMessage("Meeting minutes ready."); setGeneratedOnce(true); setMeetingId("");
+          try { sessionStorage.removeItem("meeting-minutes-pending"); } catch { /* Nothing else is needed. */ }
+          return;
+        }
+        setMessage(job?.progress || "Continuing meeting preparation automatically.");
+        schedule(Math.max(6000, Number(job?.retryAt || 0) - Date.now()));
+      } catch {
+        if (active) { setMessage("Continuing meeting preparation automatically."); schedule(12000); }
+      }
+    };
+    void continueMeeting();
+    return () => { active = false; clearTimeout(timer); };
+  }, [endpoint, kind, meetingId]);
   async function uploadMeeting(file: File, formData: FormData) {
     const start = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: formData.get("title"), notesPrompt: formData.get("notesPrompt"), fileName: file.name, contentType: file.type, fileSize: file.size }) });
     const started = await start.json();
@@ -48,10 +77,7 @@ export function QuickAiForm({ kind, accept, label, endpoint }: { kind: "audio" |
       upload.findPreviousUploads().then(previous => { if (previous.length) upload.resumeFromPreviousUpload(previous[0]); upload.start(); }).catch(reject);
     }); } catch (error) { await fetch(`${endpoint}/${info.id}`, { method: "DELETE" }).catch(() => undefined); throw error; }
     setMessage("Transcribing audio and preparing minutes...");
-    const processed = await fetch(`${endpoint}/${info.id}/process`, { method: "POST" });
-    const result = await processed.json();
-    if (!processed.ok) throw new Error(result.error || "Meeting audio could not be processed.");
-    return result.data.downloadUrl as string;
+    return info.id;
   }
   async function submit(formData: FormData) {
     setPending(true); setMessage(""); setDownload("");
@@ -59,8 +85,9 @@ export function QuickAiForm({ kind, accept, label, endpoint }: { kind: "audio" |
       if (kind === "audio") {
         const file = formData.get("file");
         if (!(file instanceof File)) throw new Error("Choose a meeting audio file.");
-        const url = await uploadMeeting(file, formData);
-        setDownload(url); setGeneratedOnce(true); setMessage("Meeting minutes ready."); return;
+        const id = await uploadMeeting(file, formData);
+        try { sessionStorage.setItem("meeting-minutes-pending", id); } catch { /* The automatic loop on this page remains active. */ }
+        setMeetingId(id); setMessage("Transcribing audio and preparing minutes..."); return;
       }
       if (kind === "sermon") {
         const file = formData.get("file");
@@ -90,7 +117,7 @@ export function QuickAiForm({ kind, accept, label, endpoint }: { kind: "audio" |
     <input type="hidden" name="title" value={kind === "audio" ? "Council meeting minutes" : "Sermon notes"} />
     <input type="hidden" name="notesPrompt" value={kind === "audio" ? "Prepare factual meeting minutes with a summary, key points, decisions, action items, owners, due dates and follow-up items." : "Make this a concise one-page bulletin insert for people to keep and take home. Include every numbered point and the conclusion."} />
     <label>{label}<input className="input" type="file" name="file" accept={accept} required /></label>
-    <button className="button" type="submit" disabled={pending}>{pending ? "Generating…" : generatedOnce ? kind === "sermon" ? "Generate new sermon notes" : "Generate new document" : "Generate"}</button>
+    <button className="button" type="submit" disabled={pending || !!meetingId}>{pending || meetingId ? "Preparing meeting minutes…" : generatedOnce ? kind === "sermon" ? "Generate new sermon notes" : "Generate new document" : "Generate"}</button>
     {message && <p role="status">{message}</p>}
     {download && <a className="button secondary" href={download}>Download document</a>}
   </form>;
