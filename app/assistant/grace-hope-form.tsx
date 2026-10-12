@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { usePreparationMonth } from "./preparation-month";
-type Job = { id: string; status: string; progress: string; error: string | null };
+type Job = { id: string; status: string; progress: string; error: string | null; retryAt?: number | null };
 const endpoint = "/api/assistant/grace-hope";
 export function GraceHopeForm() {
   const month = usePreparationMonth();
@@ -24,13 +24,15 @@ export function GraceHopeForm() {
     }).catch(e => { if (!controller.signal.aborted) setMessage(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [month, audience, revision]);
-  const busy = job?.status === "queued" || job?.status === "running";
+  // A saved guide keeps going on its own, including after a temporary service error.
+  // This also resumes a guide if the page was reloaded while it was being prepared.
+  const busy = job?.status === "queued" || job?.status === "running" || job?.status === "needs_attention";
   useEffect(() => {
     if (!busy || !job) return;
     let active = true, timer: ReturnType<typeof setTimeout>;
     async function step() {
       try {
-        const r = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: job!.id }) });
+        const r = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(job!.status === "needs_attention" ? { id: job!.id, retry: true } : { id: job!.id }) });
         const result = await r.json(); if (!r.ok) throw new Error(result.error || "Connection interrupted.");
         if (active) { setJob(result.data.job); setMessage(""); }
         if (active && result.data.job.status === "generated") {
@@ -38,7 +40,8 @@ export function GraceHopeForm() {
           try { if (sessionStorage.getItem(key)) { sessionStorage.removeItem(key); window.location.assign(`${endpoint}/${job!.id}/download`); } } catch { /* The download link remains available if browser storage is disabled. */ }
         }
       } catch (e) { if (active) setMessage((e as Error).message); }
-      if (active) timer = setTimeout(step, 12000);
+      const wait = Math.max(12000, (job!.retryAt || 0) - Date.now());
+      if (active) timer = setTimeout(step, wait);
     }
     void step(); return () => { active = false; clearTimeout(timer); };
   }, [job?.id, busy]);
@@ -58,7 +61,7 @@ export function GraceHopeForm() {
     <p className="muted">{loading ? "Checking this month’s sermons..." : `${count - planned} completed sermons and ${planned} calendar plans for ${month}.`}</p>
     {!loading && missing.length > 0 && <p className="muted">Complete sermon calendar information for: {missing.join(", ")}.</p>}
     {job?.status === "generated" && <a className="button" href={`${endpoint}/${job.id}/download`}>Download monthly guide (Word)</a>}
-    <button className="button secondary" disabled={loading || starting || !!busy || !!missing.length || !month || !count} onClick={() => void prepare(job?.status === "generated")}>{busy || starting ? "Preparing monthly guide..." : job?.status === "needs_attention" ? "Resume preparation" : job?.status === "generated" ? "Generate a new version" : "Prepare monthly guide (Word)"}</button>
+    <button className="button secondary" disabled={loading || starting || !!busy || !!missing.length || !month || !count} onClick={() => void prepare(job?.status === "generated")}>{busy || starting ? "Preparing monthly guide..." : job?.status === "generated" ? "Generate a new version" : "Prepare monthly guide (Word)"}</button>
     {job && <p className="muted" role="status">{job.progress}</p>}
     {(message || job?.error) && <p role="alert">{message || job?.error}</p>}
   </div>;

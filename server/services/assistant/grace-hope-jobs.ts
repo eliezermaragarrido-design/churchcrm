@@ -24,7 +24,7 @@ export async function groupSources(churchId: string, month: string) {
 const infoOf = (d: { inputJson: string | null }) => JSON.parse(d.inputJson || "{}");
 export function groupSummary(d: { id: string; status: string; inputJson: string | null }) {
   const info = infoOf(d);
-  return { id: d.id, status: d.status, progress: info.progress, error: info.error || null, month: info.month, audience: info.audience };
+  return { id: d.id, status: d.status, progress: info.progress, error: info.error || null, retryAt: info.retryAt || null, month: info.month, audience: info.audience };
 }
 export async function latestGroup(churchId: string, month: string, audience: GroupAudience) {
   // Only lightweight metadata is needed to find the latest matching guide.
@@ -44,16 +44,15 @@ export async function startGroup(churchId: string, month: string, audience: Grou
 }
 export async function runGroupStep(id: string, churchId: string) {
   const initial = await prisma.documentRequest.findFirst({ where: { churchId, id: { equals: id, startsWith: "gracehope_" } } });
-  if (!initial || ["generated", "needs_attention"].includes(initial.status)) return;
+  if (!initial || initial.status === "generated") return;
   const info = infoOf(initial);
   if ((info.retryAt || 0) > Date.now()) return;
-  const claim = await prisma.documentRequest.updateMany({ where: { id, churchId, updatedAt: initial.updatedAt, OR: [{ status: "queued" }, { status: "running", updatedAt: { lt: new Date(Date.now() - 300000) } }] }, data: { status: "running" } });
+  const claim = await prisma.documentRequest.updateMany({ where: { id, churchId, updatedAt: initial.updatedAt, OR: [{ status: "queued" }, { status: "needs_attention" }, { status: "running", updatedAt: { lt: new Date(Date.now() - 300000) } }] }, data: { status: "running" } });
   if (!claim.count) return;
   const locked = await prisma.documentRequest.findUniqueOrThrow({ where: { id }, select: { updatedAt: true } });
   const state: GroupState = JSON.parse(initial.generatedBody!);
   try {
     info.steps = (info.steps || 0) + 1;
-    if (info.steps > 12) throw new Error("The guide needs editorial attention after repeated revisions. Review the saved work before retrying.");
     await advanceGroup(state);
     if (state.phase === "complete") createGroupDocx(state);
     info.progress = state.phase === "complete" ? "Monthly Word guide ready." : state.phase === "scripture" ? "Verifying the Bible passages." : state.phase === "review" ? state.repairs ? "Refining wording after the two content reviews." : `Reviewing the guide. ${Math.min(state.reviews.length, 2)} of 2 checks complete.` : "Preparing the guide.";
@@ -64,7 +63,10 @@ export async function runGroupStep(id: string, churchId: string) {
     const retry = retryWorship(error, (info.failures || 0) + 1);
     info.failures = (info.failures || 0) + 1;
     info.error = retry.message; info.retryAt = Date.now() + retry.delay;
-    const blocked = retry.blocked || info.failures >= 3 || state.repairs >= 3 || info.steps > 12;
+    // Editorial revisions and temporary API failures retain their progress and retry automatically.
+    // Only a configuration or billing problem is marked for attention, and the client keeps
+    // checking it so the guide continues as soon as the issue is resolved.
+    const blocked = retry.blocked;
     info.progress = blocked ? "Preparation needs attention. Saved progress is retained." : "Retrying the saved step.";
     await prisma.documentRequest.updateMany({ where: { id, churchId, updatedAt: locked.updatedAt, status: "running" }, data: { status: blocked ? "needs_attention" : "queued", inputJson: JSON.stringify(info), generatedBody: JSON.stringify(state) } });
   }

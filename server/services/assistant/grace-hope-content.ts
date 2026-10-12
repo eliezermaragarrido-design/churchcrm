@@ -54,7 +54,6 @@ export async function advanceGroup(state: GroupState, ask?: (prompt: string) => 
       const issues = groupIssues(state.content, state.sources, state.history);
       if (!issues.length) { state.phase = "complete"; return; }
       state.repairs++;
-      if (state.repairs >= 3) throw new Error("The guide needs editorial attention: " + issues.join(" "));
       return;
     }
   }
@@ -84,7 +83,6 @@ export async function advanceGroup(state: GroupState, ask?: (prompt: string) => 
   const issues = groupIssues(state.content, state.sources, state.history);
   if (issues.length) {
     state.repairs++;
-    if (state.repairs >= 3) throw new Error("The guide needs editorial attention: " + issues.join(" "));
     return;
   }
   state.phase = "complete";
