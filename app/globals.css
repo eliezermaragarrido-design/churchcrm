@@ -406,6 +406,12 @@ textarea {
   gap: 10px;
 }
 
+.calendar-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
 .compact-list {
   gap: 6px;
 }

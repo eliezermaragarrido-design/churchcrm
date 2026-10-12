@@ -22,22 +22,11 @@ function formatDateTime(value: Date) {
   }).format(value);
 }
 
-function isSameLocalDay(left: Date, right: Date) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
-}
-
 export default async function CalendarsPage() {
   const { churchId } = await requireAuthContext();
   const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
-  const twoHoursAhead = new Date(now.getTime() + 2 * 60 * 60 * 1000);
 
-  const [calendars, upcomingEvents, publishedEvents] = await Promise.all([
+  const [calendars, upcomingEvents] = await Promise.all([
     prisma.calendar.findMany({
       where: { churchId },
       include: {
@@ -52,26 +41,9 @@ export default async function CalendarsPage() {
       where: { churchId, startsAt: { gte: now } },
       include: { calendar: true },
       orderBy: { startsAt: "asc" },
-      take: 10,
-    }),
-    prisma.calendarEvent.findMany({
-      where: {
-        churchId,
-        startsAt: { gte: now },
-        isPublished: true,
-        isAbsence: false,
-      },
-      include: { calendar: true },
-      orderBy: { startsAt: "asc" },
-      take: 30,
+      take: 8,
     }),
   ]);
-
-  const laterReminderCandidates = publishedEvents.filter((event) => isSameLocalDay(new Date(event.startsAt), tomorrow));
-  const soonReminderCandidates = publishedEvents.filter((event) => {
-    const eventDate = new Date(event.startsAt);
-    return eventDate >= now && eventDate <= twoHoursAhead;
-  });
 
   const internalCalendars = calendars.filter((calendar) => calendar.visibility === "INTERNAL");
   const publicCalendars = calendars.filter((calendar) => calendar.visibility === "PUBLIC");
@@ -80,30 +52,30 @@ export default async function CalendarsPage() {
   return (
     <AppShell
       title="Calendars"
-      subtitle="Coordinate internal staff schedules, time-off, ministry planning, and public church events from one place."
+      subtitle="Plan church events, staff permissions, and internal schedules from one clear view."
       currentPath="/calendars"
       actions={<span className="pill">{calendars.length} calendars</span>}
     >
       <section className="hero-card">
         <div className="stack">
           <p className="kicker">Calendar operations</p>
-          <h3 className="card-title">One place for internal planning, public events, staff absences, and reminder-ready scheduling.</h3>
+          <h3 className="card-title">Keep church events, staff permissions, and internal plans organized.</h3>
           <p className="page-subtitle">
-            Staff calendars can stay private, church event calendars can stay public, and published events can flow directly into reminder texts one day before and two hours before.
+            Create the calendar first, then add the event, absence, or personal entry that belongs to it.
           </p>
         </div>
         <div className="metrics-grid">
           <div className="panel panel-soft">
             <strong className="metric-value">{internalCalendars.length}</strong>
-            <p className="muted">internal staff calendars</p>
+              <p className="muted">internal calendars</p>
           </div>
           <div className="panel panel-soft">
             <strong className="metric-value">{publicCalendars.length}</strong>
-            <p className="muted">public church calendars</p>
+              <p className="muted">church event calendars</p>
           </div>
           <div className="panel panel-soft">
             <strong className="metric-value">{absenceCalendars.length}</strong>
-            <p className="muted">absence or time-off calendars</p>
+              <p className="muted">permission calendars</p>
           </div>
         </div>
       </section>
@@ -187,9 +159,9 @@ export default async function CalendarsPage() {
         </SectionCard>
       </section>
 
-      <section className="two-column">
-        <SectionCard title="Upcoming schedule" action={<span className="muted">Live calendar events</span>}>
-          <div className="calendar-day-list">
+      <section>
+        <SectionCard title="Next events" action={<span className="muted">Next 8 entries</span>}>
+          <div className="calendar-event-grid">
             {upcomingEvents.length ? (
               upcomingEvents.map((event) => (
                 <div key={event.id} className="calendar-event">
@@ -212,65 +184,7 @@ export default async function CalendarsPage() {
             )}
           </div>
         </SectionCard>
-
-        <SectionCard title="Reminder queue for SMS">
-          <div className="stack">
-            <div className="panel panel-soft stack">
-              <div className="toolbar">
-                <strong>Tomorrow reminders</strong>
-                <Badge>{laterReminderCandidates.length} ready</Badge>
-              </div>
-              <div className="list compact-list">
-                {laterReminderCandidates.length ? laterReminderCandidates.map((event) => (
-                  <div key={event.id} className="list-item">
-                    <div>
-                      <strong>{event.title}</strong>
-                      <div className="muted">{formatDateTime(event.startsAt)} - {event.calendar.name}</div>
-                    </div>
-                  </div>
-                )) : <div className="list-item"><span>No published events are currently scheduled for tomorrow.</span></div>}
-              </div>
-            </div>
-
-            <div className="panel panel-soft stack">
-              <div className="toolbar">
-                <strong>2-hour reminders</strong>
-                <Badge>{soonReminderCandidates.length} ready</Badge>
-              </div>
-              <div className="list compact-list">
-                {soonReminderCandidates.length ? soonReminderCandidates.map((event) => (
-                  <div key={event.id} className="list-item">
-                    <div>
-                      <strong>{event.title}</strong>
-                      <div className="muted">{formatDateTime(event.startsAt)} - {event.calendar.name}</div>
-                    </div>
-                  </div>
-                )) : <div className="list-item"><span>No published events currently entering the 2-hour reminder window.</span></div>}
-              </div>
-            </div>
-          </div>
-        </SectionCard>
       </section>
-
-      <SectionCard title="Published church events" action={<Badge>{publishedEvents.length} public reminders eligible</Badge>}>
-        <div className="three-column">
-          {publishedEvents.length ? publishedEvents.map((event) => (
-            <article key={event.id} className="calendar-event">
-              <div className="toolbar">
-                <strong>{event.title}</strong>
-                <Badge>{event.calendar.name}</Badge>
-              </div>
-              <div className="muted">{formatDateTime(event.startsAt)}</div>
-              <div className="muted">{event.location || "No location"}</div>
-              <div className="muted">This event is marked to support church text reminders.</div>
-              <form action={deleteCalendarEventAction}>
-                <input type="hidden" name="eventId" value={event.id} />
-                <button className="button secondary" type="submit">Delete event</button>
-              </form>
-            </article>
-          )) : <article className="calendar-event">No published church events yet. Mark an event as published to make it reminder-ready.</article>}
-        </div>
-      </SectionCard>
     </AppShell>
   );
 }
