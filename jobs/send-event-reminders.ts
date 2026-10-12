@@ -32,7 +32,7 @@ export async function sendUpcomingEventReminders() {
 
     for (const member of members) {
       if (!member.phoneMobile) continue;
-      await sendSms(member.phoneMobile, `${event.title} is coming up at ${event.startsAt.toLocaleString()}. We hope to see you there.`);
+      await sendSms(member.phoneMobile, `${event.title} is coming up at ${event.startsAt.toLocaleString()}. We hope to see you there.`, event.churchId);
     }
   }
 

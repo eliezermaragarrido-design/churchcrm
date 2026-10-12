@@ -1,3 +1,4 @@
+import { requireAuthContext } from "@/lib/auth";
 import Link from "next/link";
 import { prisma } from "@/lib/db/prisma";
 import { AppShell } from "@/components/layout/app-shell";
@@ -8,7 +9,9 @@ import { createGroupAction } from "./actions";
 const groupTypes = ["SUNDAY_SCHOOL", "SMALL_GROUP", "MINISTRY", "VOLUNTEER_TEAM", "CARE_TEAM", "YOUTH_GROUP", "CLASS"] as const;
 
 export default async function GroupsPage() {
+  const { churchId } = await requireAuthContext();
   const groups = await prisma.group.findMany({
+    where: { churchId },
     include: {
       memberships: {
         include: { member: true },

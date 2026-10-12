@@ -20,7 +20,7 @@ export async function sendBirthdayTexts() {
     if (!member.birthdate || !member.phoneMobile) continue;
     if (member.birthdate.getUTCMonth() + 1 !== month || member.birthdate.getUTCDate() !== day) continue;
 
-    await sendSms(member.phoneMobile, `Happy Birthday, ${member.preferredName || member.firstName}! Your church family is thankful for you.`);
+    await sendSms(member.phoneMobile, `Happy Birthday, ${member.preferredName || member.firstName}! Your church family is thankful for you.`, member.churchId);
     sent += 1;
   }
 

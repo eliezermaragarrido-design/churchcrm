@@ -1,3 +1,4 @@
+import { requireAuthContext } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/layout/badge";
@@ -7,7 +8,9 @@ import { createMemberAction, deleteMemberAction } from "./actions";
 export const dynamic = "force-dynamic";
 
 export default async function MembersPage() {
+  const { churchId } = await requireAuthContext();
   const members = await prisma.member.findMany({
+    where: { churchId },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   });
 

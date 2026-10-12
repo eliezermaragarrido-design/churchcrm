@@ -8,7 +8,9 @@ This project can already:
 - sync daily assets from Supabase public buckets `IMAGES` and `REELS`
 - queue daily posts for each connected social account
 - publish due posts through `/api/automation/publish`
-- run the publisher automatically every 15 minutes on Vercel cron
+- invoke the publisher daily at 14:00 UTC through the current Vercel cron configuration
+
+These describe implemented paths, not verified production readiness or provider approval. See `docs/production-readiness.md` for known blockers. A configured `CRON_SECRET` is required; the publisher returns 503 without it and 401 for an invalid bearer token.
 
 ## Required environment variables
 

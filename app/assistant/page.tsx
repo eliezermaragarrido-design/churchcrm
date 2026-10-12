@@ -1,39 +1,33 @@
+import { PreparationMonth } from "./preparation-month";
 import { AppShell } from "@/components/layout/app-shell";
-import { Badge } from "@/components/layout/badge";
-import { SectionCard } from "@/components/layout/section-card";
-import { assistantTasks } from "@/lib/mock-data";
+import { SermonPlanForm } from "./sermon-plan-form";
+import { QuickAiForm } from "./quick-ai-form";
+import { SermonPreparationForm } from "./sermon-preparation-form";
+import { WorshipOutlineForm } from "./worship-outline-form";
+import { WorshipMusicForm } from "./worship-music-form";
+import { BulletinForm } from "./bulletin-form";
 
 export default function AssistantPage() {
   return (
     <AppShell
       title="Assistant"
-      subtitle="Church-office AI tools for documents, sermon notes, summaries, and communication workflows."
+      subtitle="Church-office tools for documents, sermons, schedules, and messages."
       currentPath="/assistant"
       actions={<button className="button">Start new task</button>}
     >
-      <section className="metrics-grid compact-metrics">
-        <div className="metric-card">
-          <p className="muted">Tasks</p>
-          <div className="metric-value">{assistantTasks.length}</div>
-        </div>
-        <div className="metric-card">
-          <p className="muted">Ready tools</p>
-          <div className="metric-value">3</div>
-        </div>
+      <section className="two-column">
+        <article className="list-card"><div className="stack"><h2 className="card-title">Meeting minutes</h2><p className="muted">Upload a council meeting recording to prepare shareable minutes.</p><QuickAiForm kind="audio" accept="audio/*" label="Meeting audio" endpoint="/api/assistant/meeting-notes" /></div></article>
+        <article className="list-card"><div className="stack"><h2 className="card-title">Sermon notes</h2><p className="muted">Upload the weekly PowerPoint to extract the title, points, and scripture used in each point.</p><QuickAiForm kind="sermon" accept=".ppt,.pptx" label="Sermon PowerPoint" endpoint="/api/assistant/sermon-notes" /></div></article>
       </section>
-
-      <section className="three-column">
-        {assistantTasks.map((task) => (
-          <article key={task.title} className="list-card">
-            <div className="stack">
-              <h3 className="card-title">{task.title}</h3>
-              <div className="panel">
-                <p className="muted">{task.output}</p>
-              </div>
-            </div>
-          </article>
-        ))}
+      <PreparationMonth>
+      <section className="two-column">
+        <article className="list-card"><div className="stack"><h2 className="card-title">Sermon preparation</h2><p className="muted">Your imported calendar supplies the title, scripture, series, and sermon remarks for each Sunday.</p><SermonPreparationForm /></div></article>
+        <article className="list-card"><div className="stack"><h2 className="card-title">Import sermon calendar</h2><SermonPlanForm /></div></article>
+        <article className="list-card"><div className="stack"><h2 className="card-title">Import weekly worship music</h2><WorshipMusicForm /></div></article>
+        <article className="list-card"><div className="stack"><h2 className="card-title">Worship service outline</h2><WorshipOutlineForm /></div></article>
+        <article className="list-card"><div className="stack"><h2 className="card-title">Weekly bulletin</h2><BulletinForm /></div></article>
       </section>
+      </PreparationMonth>
 
     </AppShell>
   );

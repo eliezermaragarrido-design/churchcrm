@@ -1,3 +1,4 @@
+import { requireAuthContext } from "@/lib/auth";
 ﻿import { prisma } from "@/lib/db/prisma";
 import { env } from "@/lib/env";
 import { AppShell } from "@/components/layout/app-shell";
@@ -31,6 +32,7 @@ function isSameLocalDay(left: Date, right: Date) {
 }
 
 export default async function MessagesPage() {
+  const { churchId } = await requireAuthContext();
   const now = new Date();
   const tomorrow = new Date(now);
   tomorrow.setDate(now.getDate() + 1);
@@ -40,7 +42,7 @@ export default async function MessagesPage() {
   const [reachableMembers, campaigns, publishedEvents] = await Promise.all([
     prisma.member.findMany({
       where: {
-        isSmsOptedOut: false,
+        churchId,        isSmsOptedOut: false,
         phoneMobile: { not: null },
         status: "ACTIVE",
       },
@@ -53,6 +55,7 @@ export default async function MessagesPage() {
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
     prisma.messageCampaign.findMany({
+      where: { churchId },
       include: {
         recipients: {
           include: {
@@ -66,7 +69,7 @@ export default async function MessagesPage() {
     }),
     prisma.calendarEvent.findMany({
       where: {
-        startsAt: { gte: now },
+        churchId,        startsAt: { gte: now },
         isPublished: true,
         isAbsence: false,
       },

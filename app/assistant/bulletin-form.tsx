@@ -1,0 +1,10 @@
+"use client";
+import { useEffect, useState } from "react";
+import { usePreparationMonth } from "./preparation-month";
+type Row = { id: string; serviceDate: string; title: string; ready: boolean; missing?: string };
+const label = (date: string) => new Date(date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
+export function BulletinForm() {
+  const month = usePreparationMonth(), [rows, setRows] = useState<Row[]>([]), [message, setMessage] = useState("Loading bulletins...");
+  useEffect(() => { let active = true; async function load() { try { const response = await fetch("/api/assistant/bulletin" + (month ? "?month=" + month : ""), { cache: "no-store", signal: AbortSignal.timeout(30000) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not load bulletins."); if (active) { setRows(result.data); setMessage(""); } } catch (error) { if (active) setMessage(error instanceof Error ? error.message : "Could not load bulletins."); } } void load(); window.addEventListener("sermon-calendar-imported", load); window.addEventListener("worship-music-imported", load); return () => { active = false; window.removeEventListener("sermon-calendar-imported", load); window.removeEventListener("worship-music-imported", load); }; }, [month]);
+  return <div className="stack"><p className="muted">The bulletin keeps the supplied print-ready layout and page order. It fills this Sunday’s music, scriptures, sermon title, Methodist calendar date, and Sermon Notes. The prayer-list page stays unchanged for manual updates.</p>{message && <p role="status">{message}</p>}{rows.map(row => <div className="panel stack" key={row.id}><strong>{label(row.serviceDate)}</strong><span>{row.title}</span><button className="button" disabled={!row.ready} onClick={() => window.location.assign(`/api/assistant/bulletin/${row.id}/download?new=${Date.now()}`)}>Generate new bulletin (Word)</button>{!row.ready && <p className="muted">{row.missing}</p>}</div>)}</div>;
+}

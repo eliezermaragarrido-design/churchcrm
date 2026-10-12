@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserStatus {
@@ -214,6 +215,49 @@ model Church {
   socialAccounts    SocialAccount[]
   socialPosts       SocialPost[]
   contentAssets     ContentAsset[]
+  smsSubscriptions  SmsSubscription[]
+  sermonPlans       SermonPlan[]
+}
+
+model SmsSubscription {
+  id             String   @id @default(cuid())
+  churchId       String
+  phoneNumber    String
+  name           String
+  consentText    String
+  consentVersion String
+  source         String
+  consentedAt    DateTime @default(now())
+  revokedAt      DateTime?
+  church         Church   @relation(fields: [churchId], references: [id], onDelete: Cascade)
+
+  @@index([churchId, phoneNumber, revokedAt])
+}
+
+model SermonPlan {
+  id                 String   @id @default(cuid())
+  churchId           String
+  serviceDate        DateTime
+  title              String
+  scriptureReference String
+  firstScriptureLesson String?
+  secondScriptureLesson String?
+  sermonRemarks        String?
+  series             String?
+  theme              String?
+  mainIdea           String?
+  serviceTime        String?
+  location           String?
+  language           String   @default("English")
+  pastorNotes        String?
+  generatedJson      String?
+  approvedJson       String?
+  status             String   @default("draft")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  church             Church   @relation(fields: [churchId], references: [id], onDelete: Cascade)
+
+  @@index([churchId, serviceDate])
 }
 
 model User {

@@ -1,0 +1,22 @@
+// Fixed liturgy transcribed from the user's September 6, 2026 reference.
+export const communionLiturgy: [string, string][] = [
+  ["", "Christ our Lord invites to His table all who love him, who earnestly repent of their sin and seek to live in peace with one another. Therefore, let us confess our sin before God and one another."],
+  ["Join me in prayer:", "Merciful God, we confess that we have not loved you with our whole heart, we have failed to be an obedient church, we have not done your will, we have broken your law, we have rebelled against your love, we have not loved our neighbors and we have not heard the cry of the needy. Forgive us, we pray. Free us for joyful obedience, through Jesus Christ our Lord. Amen."],
+  ["Eliezer:", "Hear the good news: Christ died for us while we were yet sinners; that proves God’s love toward us. In the name of Jesus Christ, you are forgiven!"],
+  ["Mara - People:", "In the name of Jesus Christ, you are forgiven!"],
+  ["Eliezer - Mara:", "Glory to God. Amen."],
+  ["Eliezer:", "The Lord be with you."],
+  ["Mara:", "And also with you."],
+  ["Eliezer:", "Lift up your hearts."],
+  ["Mara:", "We lift them up to the Lord."],
+  ["Eliezer:", "Let us give thanks to the Lord our God."],
+  ["Mara:", "It is right to give our thanks and praise."],
+  ["Eliezer:", "It is right, and a good and joyful thing, always and everywhere to give thanks to you, Father Almighty, creator of heaven and earth. And so, with your people on earth and all the company of heaven we praise your name and join their unending hymn:"],
+  ["Eliezer - Mara:", "Holy, Holy, Holy Lord, God of power and might, heaven and earth are full of your glory. Hosanna in the highest. Blessed is he who comes in the name of the Lord. Hosanna in the highest."],
+  ["Eliezer:", "Holy are you and blessed is your son Jesus Christ. By the baptism of his suffering, death, and resurrection you gave birth to your church, delivered us from slavery to sin and death, and made with us a new covenant by water and the spirit."],
+  ["Eliezer:", "On the night in which he gave himself up for us he took bread, gave thanks to you, broke the bread, gave it to his disciples, and said: “Take, eat; this is my body which is given for you. Do this in remembrance of me.”"],
+  ["Mara:", "When the supper was over, he took the cup, gave thanks to you, gave it to his disciples, and said: “Drink from this, all of you; this is my blood of the new covenant poured out for you and for many for the forgiveness of sins. Do this, as often as you drink it, in remembrance of me.”"],
+  ["Eliezer:", "And so, in remembrance of these your mighty acts in Jesus Christ, we offer ourselves in praise and thanksgiving as a holy and living sacrifice, in union with Christ’s offering for us, as we proclaim the mystery of faith."],
+  ["Eliezer:", "Christ has died; Christ is risen; Christ will come again."],
+  ["Mara:", "Pour out your Holy Spirit on us gathered here, and on these gifts of bread and wine. Make them be for us the body and blood of Christ, that we may be for the world the body of Christ, redeemed by his blood. By your Spirit make us one with Christ, one with each other, and one in ministry to all the world, until Christ comes in final victory, and we feast at his heavenly banquet. Through your son Jesus Christ, with the Holy Spirit in your holy church, all honor and glory are yours, almighty Father, now and forever. Amen."],
+];

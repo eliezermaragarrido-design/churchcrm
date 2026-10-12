@@ -3,12 +3,14 @@ import { env } from "@/lib/env";
 import { processDueSocialPosts } from "@/server/services/social/service";
 
 export async function GET(request: Request) {
-  if (env.CRON_SECRET) {
-    const authorization = request.headers.get("authorization");
+  if (!env.CRON_SECRET) {
+    return NextResponse.json({ error: "Publisher is not configured" }, { status: 503 });
+  }
 
-    if (authorization !== `Bearer ${env.CRON_SECRET}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const authorization = request.headers.get("authorization");
+
+  if (authorization !== `Bearer ${env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const result = await processDueSocialPosts();

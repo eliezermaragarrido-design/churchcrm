@@ -12,9 +12,10 @@ export default function PrivacyPage() {
         <h2>Information we use</h2>
         <p>We use account, member, contact, calendar, communication, media, and connected social-account information to operate church services, send requested notifications, schedule approved content, and protect the workspace.</p>
         <h2>How we share information</h2>
-        <p>We do not sell personal information or phone numbers. We use service providers such as Supabase, Vercel, Twilio, and connected social platforms only to provide the requested CRM features and protect the service. We do not share mobile numbers with third parties for their own marketing.</p>
+        <p>We do not sell personal information or phone numbers. We use service providers such as Supabase, Vercel, Twilio, and connected social platforms only to provide the requested CRM features and protect the service.</p>
+        <p>Mobile information will not be shared with third parties or affiliates for marketing or promotional purposes. Text messaging opt-in data and consent will not be sold, rented, or shared with third parties or affiliates for their own use. Providers that deliver and operate our messaging service may process this information only on our behalf to provide that service.</p>
         <h2>SMS communications</h2>
-        <p>Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. SMS messages are limited to church-related communication requested by the recipient or authorized by the church.</p>
+        <p>Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. SMS messages require the recipient's express consent for the applicable church messaging program. Church membership, providing a phone number, or staff authorization alone does not establish SMS consent.</p>
         <h2>Contact</h2>
         <p>Questions about privacy can be sent to <a href="mailto:office@fumcdimmitt.org">office@fumcdimmitt.org</a>.</p>
         <nav className="public-policy-nav"><Link href={{ pathname: "/terms" }}>Terms</Link><Link href={{ pathname: "/sms-consent" }}>SMS consent</Link><Link href={{ pathname: "/contact" }}>Contact</Link><Link href={{ pathname: "/" }}>Home</Link></nav>

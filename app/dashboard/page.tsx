@@ -1,3 +1,4 @@
+import { requireAuthContext } from "@/lib/auth";
 ﻿import Link from "next/link";
 import { prisma } from "@/lib/db/prisma";
 import { AppShell } from "@/components/layout/app-shell";
@@ -8,26 +9,29 @@ import { Badge } from "@/components/layout/badge";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const { churchId } = await requireAuthContext();
   const now = new Date();
   const upcomingWindow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   const [memberCount, calendarCount, upcomingEvents, latestMembers, latestPublishedPosts] = await Promise.all([
-    prisma.member.count(),
-    prisma.calendar.count(),
+    prisma.member.count({ where: { churchId } }),
+    prisma.calendar.count({ where: { churchId } }),
     prisma.calendarEvent.findMany({
-      where: { startsAt: { gte: now, lte: upcomingWindow } },
+      where: { churchId, startsAt: { gte: now, lte: upcomingWindow } },
       include: { calendar: true },
       orderBy: { startsAt: "asc" },
       take: 6,
     }),
     prisma.member.findMany({
+      where: { churchId },
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
     prisma.socialPost.findMany({
-      where: { churchId: "demo-church", status: "POSTED" },
+      where: { churchId, status: "POSTED" },
       include: {
         socialAccount: true,
+        asset: true,
       },
       orderBy: { publishedAt: "desc" },
       take: 8,
@@ -94,27 +98,27 @@ export default async function DashboardPage() {
 
       <section>
         <SectionCard title="Latest published posts" action={<Link href="/automation" className="muted">Open automation</Link>}>
-          <div className="list compact-list">
+          <div className="published-post-grid">
             {latestPublishedPosts.length ? (
-              latestPublishedPosts.map((post) => (
-                <div key={post.id} className="list-item">
-                  <div>
-                    <strong>{post.title || post.caption || "Untitled post"}</strong>
-                    <div className="muted">
-                      {post.socialAccount?.accountLabel || "Unassigned account"} - {post.postType.replaceAll("_", " ")}
+              latestPublishedPosts.map((post) => {
+                const imageUrl = post.asset?.thumbnailUrl || (post.postType === "FEED_POST" ? post.asset?.fileUrl : null);
+                const published = post.publishedAt ? new Intl.DateTimeFormat("en-US", {
+                  month: "short",
+                  day: "numeric",
+                }).format(post.publishedAt) : "Today";
+                return (
+                  <article key={post.id} className="published-post-card">
+                    <div className={`published-post-visual ${imageUrl ? "has-image" : ""}`}>
+                      {imageUrl ? <img src={imageUrl} alt="" /> : <span aria-hidden="true">{post.postType === "SHORT_VIDEO" ? "▶" : "✦"}</span>}
+                      {post.postType === "SHORT_VIDEO" ? <span className="published-post-play" aria-label="Video">▶</span> : null}
                     </div>
-                  </div>
-                  <div className="muted">
-                    {post.publishedAt ? new Intl.DateTimeFormat("en-US", {
-                      month: "numeric",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                      hour12: true,
-                    }).format(post.publishedAt) : "Today"}
-                  </div>
-                </div>
-              ))
+                    <div className="published-post-meta">
+                      <strong>{post.socialAccount?.accountLabel || "Published post"}</strong>
+                      <span>{published} · {post.postType === "SHORT_VIDEO" ? "Video" : "Image"}</span>
+                    </div>
+                  </article>
+                );
+              })
             ) : (
               <div className="list-item"><span>No published posts yet.</span></div>
             )}

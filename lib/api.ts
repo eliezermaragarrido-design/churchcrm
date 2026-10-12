@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import { openAIBillingMessage } from "@/lib/openai-errors";
 
 export function ok(data: unknown, init?: ResponseInit) {
   return NextResponse.json({ data }, init);
@@ -10,6 +11,9 @@ export function fail(message: string, status = 400, details?: unknown) {
 }
 
 export function handleRouteError(error: unknown) {
+  const billingMessage = openAIBillingMessage(error);
+  if (billingMessage) return fail(billingMessage, 429);
+
   if (error instanceof ZodError) {
     return fail("Validation failed", 422, error.flatten());
   }

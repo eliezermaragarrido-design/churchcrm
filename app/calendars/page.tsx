@@ -1,3 +1,4 @@
+import { requireAuthContext } from "@/lib/auth";
 ﻿import { prisma } from "@/lib/db/prisma";
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/layout/badge";
@@ -30,6 +31,7 @@ function isSameLocalDay(left: Date, right: Date) {
 }
 
 export default async function CalendarsPage() {
+  const { churchId } = await requireAuthContext();
   const now = new Date();
   const tomorrow = new Date(now);
   tomorrow.setDate(now.getDate() + 1);
@@ -37,6 +39,7 @@ export default async function CalendarsPage() {
 
   const [calendars, upcomingEvents, publishedEvents] = await Promise.all([
     prisma.calendar.findMany({
+      where: { churchId },
       include: {
         entries: {
           orderBy: { startsAt: "asc" },
@@ -46,13 +49,14 @@ export default async function CalendarsPage() {
       orderBy: [{ visibility: "asc" }, { name: "asc" }],
     }),
     prisma.calendarEvent.findMany({
-      where: { startsAt: { gte: now } },
+      where: { churchId, startsAt: { gte: now } },
       include: { calendar: true },
       orderBy: { startsAt: "asc" },
       take: 10,
     }),
     prisma.calendarEvent.findMany({
       where: {
+        churchId,
         startsAt: { gte: now },
         isPublished: true,
         isAbsence: false,

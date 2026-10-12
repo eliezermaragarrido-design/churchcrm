@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAuthContext } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
 import { sendSms } from "@/lib/twilio/client";
+import { normalizeSmsPhone } from "@/lib/sms-consent";
 
 function formatReminderBody(title: string, startsAt: Date, location: string | null, timingLabel: string) {
   const startsText = new Intl.DateTimeFormat("en-US", {
@@ -35,7 +36,7 @@ function getErrorDetails(error: unknown) {
 }
 
 async function listReachableMembers(churchId: string, groupId?: string) {
-  return prisma.member.findMany({
+  const members = await prisma.member.findMany({
     where: {
       churchId,
       isSmsOptedOut: false,
@@ -59,6 +60,26 @@ async function listReachableMembers(churchId: string, groupId?: string) {
     },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   });
+  const subscriptions = await prisma.smsSubscription.findMany({
+    where: { churchId, revokedAt: null },
+    distinct: ["phoneNumber"],
+  });
+  const consentedPhones = new Set(subscriptions.map((subscription) => subscription.phoneNumber));
+  const recipients = new Map<string, { id: string | null; phoneMobile: string }>();
+  for (const member of members) {
+    try {
+      const phone = normalizeSmsPhone(member.phoneMobile || "");
+      if (consentedPhones.has(phone)) recipients.set(phone, { id: member.id, phoneMobile: phone });
+    } catch { continue; }
+  }
+  if (!groupId) {
+    for (const subscription of subscriptions) {
+      if (!recipients.has(subscription.phoneNumber)) {
+        recipients.set(subscription.phoneNumber, { id: null, phoneMobile: subscription.phoneNumber });
+      }
+    }
+  }
+  return [...recipients.values()];
 }
 
 async function resolveAudienceGroup(churchId: string, audienceGroupId: string | undefined) {
@@ -167,6 +188,7 @@ export async function createEventReminderCampaignAction(formData: FormData) {
 
 export async function sendCampaignAction(formData: FormData) {
   const auth = await requireAuthContext();
+  if (auth.isDemoMode) throw new Error("Sign in before sending messages.");
   const campaignId = String(formData.get("campaignId") || "").trim();
 
   const campaign = await prisma.messageCampaign.findFirst({
@@ -183,13 +205,22 @@ export async function sendCampaignAction(formData: FormData) {
     throw new Error("Campaign not found.");
   }
 
+  const claimed = await prisma.messageCampaign.updateMany({
+    where: { id: campaign.id, churchId: auth.churchId, status: { in: ["DRAFT", "SCHEDULED"] } },
+    data: { status: "SENDING" },
+  });
+  if (claimed.count !== 1) {
+    throw new Error("This campaign is already sending or has been processed. Review its delivery results before retrying.");
+  }
+
   const sentAt = new Date();
   let hasFailure = false;
   let sentCount = 0;
 
   for (const recipient of campaign.recipients) {
+    if (recipient.deliveryStatus !== "QUEUED") continue;
     try {
-      const result = await sendSms(recipient.phoneNumber, campaign.body);
+      const result = await sendSms(recipient.phoneNumber, campaign.body, auth.churchId);
       await prisma.messageRecipient.update({
         where: { id: recipient.id },
         data: {

@@ -1,5 +1,7 @@
 import { env } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/db/prisma";
+import { localDevelopmentAccess, staffIdentityAllowed } from "@/lib/access-policy";
 
 export type AuthContext = {
   churchId: string;
@@ -18,8 +20,9 @@ function getDemoAuthContext(): AuthContext {
 }
 
 export async function requireAuthContext(): Promise<AuthContext> {
+  if (localDevelopmentAccess()) return getDemoAuthContext();
   if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    return getDemoAuthContext();
+    throw new Error("Unauthorized");
   }
 
   const supabase = await createSupabaseServerClient();
@@ -27,14 +30,14 @@ export async function requireAuthContext(): Promise<AuthContext> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    return getDemoAuthContext();
-  }
+  if (!staffIdentityAllowed(user, env.DEFAULT_CHURCH_ID)) throw new Error("Unauthorized");
+  const member = await prisma.user.findFirst({ where: { email: { equals: user!.email!, mode: "insensitive" }, churchId: env.DEFAULT_CHURCH_ID, status: "ACTIVE" } });
+  if (!member) throw new Error("Unauthorized");
 
   return {
-    churchId: env.DEFAULT_CHURCH_ID,
-    userId: user.id,
-    email: user.email,
+    churchId: member.churchId,
+    userId: member.id,
+    email: member.email,
     isDemoMode: false,
   };
 }
