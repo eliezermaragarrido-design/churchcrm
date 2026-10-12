@@ -17,7 +17,7 @@ export default function AssistantPage() {
       actions={<button className="button">Start new task</button>}
     >
       <section className="two-column">
-        <article className="list-card"><div className="stack"><h2 className="card-title">Meeting minutes</h2><p className="muted">Upload a council meeting recording to prepare shareable minutes.</p><QuickAiForm kind="audio" accept="audio/*" label="Meeting audio" endpoint="/api/assistant/meeting-notes" /></div></article>
+        <article className="list-card"><div className="stack"><h2 className="card-title">Meeting minutes</h2><p className="muted">Upload a council meeting recording. MP3 supports recordings from 45 to 90 minutes. Audio is deleted after the minutes are prepared.</p><QuickAiForm kind="audio" accept="audio/mpeg,audio/wav,audio/mp4,audio/x-m4a,audio/webm,.mp3,.wav,.m4a,.mp4,.webm" label="Meeting audio" endpoint="/api/assistant/meeting-notes" /></div></article>
         <article className="list-card"><div className="stack"><h2 className="card-title">Sermon notes</h2><p className="muted">Upload the weekly PowerPoint to extract the title, points, and scripture used in each point.</p><QuickAiForm kind="sermon" accept=".ppt,.pptx" label="Sermon PowerPoint" endpoint="/api/assistant/sermon-notes" /></div></article>
       </section>
       <PreparationMonth>

@@ -10,6 +10,7 @@ import { refineFinalPhrase } from "./final-phrase";
 import { refineSermonEditorial } from "./sermon-editorial";
 import { selectScriptureEmphasis } from "./scripture-emphasis";
 import { refineSermonSubstance } from "./sermon-substance";
+import { meetingMinutes, minutesIssues, type MeetingMinutes } from "@/lib/documents/meeting-minutes-types";
 
 function getOpenAIClient() {
   if (!env.OPENAI_API_KEY) {
@@ -85,27 +86,104 @@ async function uploadToSupabase(folder: string, file: File) {
   return data.publicUrl;
 }
 
-export async function createMeetingSummary(churchId: string, input: AssistantSummaryInput, file: File) {
-  const client = getOpenAIClient();
-  const transcription = await client.audio.transcriptions.create({ model: "gpt-4o-mini-transcribe", file });
-  const response = await client.responses.create({
-    model: "gpt-4.1-mini",
-    input: `You are the church council secretary. Turn this meeting transcript into concise minutes with: date, attendees if stated, decisions, discussion summary, action items with owners and due dates, and follow-up questions. Do not invent facts.\n\n${input.notesPrompt}\n\nTranscript:\n${transcription.text}`,
-  });
-  const generatedBody = response.output_text?.trim();
-  if (!generatedBody) throw new Error("OpenAI did not return meeting minutes.");
-  const fileUrl = env.SUPABASE_SERVICE_ROLE_KEY ? await uploadToSupabase("meeting-audio", file) : null;
+const MAX_TRANSCRIPTION_BYTES = 24 * 1024 * 1024;
+const MAX_MEETING_AUDIO_BYTES = 180 * 1024 * 1024;
 
-  return prisma.documentRequest.create({
-    data: {
-      churchId,
-      title: input.title,
-      inputJson: JSON.stringify({ notesPrompt: input.notesPrompt, fileName: file.name, fileUrl, transcript: transcription.text }),
-      generatedBody,
-      outputFileUrl: fileUrl,
-      status: "queued",
-    },
-  });
+function safeAudioName(name: string) {
+  const extension = name.toLowerCase().match(/\.(mp3|wav|m4a|mp4|mpeg|mpga|webm)$/)?.[1];
+  if (!extension) throw new Error("Use an MP3, WAV, M4A, MP4, MPEG, MPGA or WebM audio file.");
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+}
+
+function meetingPath(churchId: string, documentId: string, fileName: string) {
+  return `meeting-audio-temp/${churchId}/${documentId}/${safeAudioName(fileName)}`;
+}
+
+export async function startMeetingUpload(churchId: string, input: AssistantSummaryInput, file: { name: string; type: string; size: number }) {
+  if (!file.size) throw new Error("Choose an audio recording before starting.");
+  if (file.size > MAX_MEETING_AUDIO_BYTES) throw new Error("Meeting audio must be 180 MB or smaller.");
+  const document = await prisma.documentRequest.create({ data: { churchId, title: input.title, inputJson: JSON.stringify({ notesPrompt: input.notesPrompt, fileName: file.name, fileType: file.type, fileSize: file.size, stage: "uploading" }), status: "uploading" } });
+  const path = meetingPath(churchId, document.id, file.name);
+  const storage = createSupabaseAdminClient().storage.from(env.SUPABASE_UPLOAD_BUCKET);
+  const signed = await storage.createSignedUploadUrl(path);
+  if (signed.error || !signed.data) {
+    await prisma.documentRequest.delete({ where: { id: document.id } });
+    throw new Error("Temporary audio upload is unavailable. Please try again.");
+  }
+  const signedUploadUrl = signed.data.signedUrl.startsWith("http") ? signed.data.signedUrl : new URL(signed.data.signedUrl, env.NEXT_PUBLIC_SUPABASE_URL).toString();
+  await prisma.documentRequest.update({ where: { id: document.id }, data: { inputJson: JSON.stringify({ notesPrompt: input.notesPrompt, fileName: file.name, fileType: file.type, fileSize: file.size, tempPath: path, stage: "uploaded" }), status: "queued" } });
+  const resumable = new URL(env.NEXT_PUBLIC_SUPABASE_URL!);
+  resumable.hostname = resumable.hostname.replace(".supabase.co", ".storage.supabase.co");
+  resumable.pathname = "/storage/v1/upload/resumable";
+  return { id: document.id, signedUploadUrl, token: signed.data.token, path, bucketName: env.SUPABASE_UPLOAD_BUCKET, resumableUploadUrl: resumable.toString() };
+}
+
+function mp3Chunks(data: Uint8Array) {
+  const chunks: Uint8Array[] = [];
+  let start = 0;
+  while (start < data.length) {
+    let end = Math.min(data.length, start + MAX_TRANSCRIPTION_BYTES);
+    if (end < data.length) {
+      const floor = Math.max(start + 1024, end - 64 * 1024);
+      while (end > floor && !(data[end] === 0xff && (data[end + 1] & 0xe0) === 0xe0)) end--;
+      if (end <= floor) end = Math.min(data.length, start + MAX_TRANSCRIPTION_BYTES);
+    }
+    chunks.push(data.slice(start, end));
+    start = end;
+  }
+  return chunks;
+}
+
+async function transcribeMeetingAudio(client: OpenAI, fileName: string, contentType: string, bytes: Uint8Array) {
+  const extension = fileName.toLowerCase().split(".").pop() || "";
+  const chunks = bytes.length <= MAX_TRANSCRIPTION_BYTES ? [bytes] : extension === "mp3" ? mp3Chunks(bytes) : [];
+  if (!chunks.length) throw new Error("For recordings larger than 24 MB, export MP3 audio before uploading. The transcription service limits each audio part to 25 MB.");
+  const transcript: string[] = [];
+  for (let index = 0; index < chunks.length; index++) {
+    const part = new File([chunks[index]], chunks.length === 1 ? fileName : `${fileName.replace(/\.mp3$/i, "")}-part-${index + 1}.mp3`, { type: contentType || "audio/mpeg" });
+    const result = await client.audio.transcriptions.create({ model: "gpt-transcribe" as any, file: part, prompt: transcript.length ? `Continue this church meeting. The previous section ended: ${transcript.join(" ").slice(-1200)}` : "Church council meeting. Preserve names, dates, decisions, assignments, and deadlines exactly when spoken." });
+    transcript.push(result.text);
+  }
+  return transcript.join("\n\n");
+}
+
+const minutesPrompt = `You are a precise church council secretary. Build factual meeting minutes from the transcript only. Never invent attendees, a date, a decision, an owner, a due date, or a follow-up. Use "Not stated" for an owner or due date when the transcript gives no answer. Ignore small talk, repetition and incomplete ideas.
+
+Return only JSON matching {meetingDate?:string,attendees:string[],summary:string[],decisions:string[],actionItems:[{task:string,owner:string,dueDate:string}],keyPoints:string[],followUps:string[]}.
+
+Writing rules apply to every JSON text field. Use clear, simple, short connected sentences. Use active voice. Focus on actions and facts. Do not use Markdown. Do not use em dashes, semicolons, asterisks, hashtags, metaphors, cliches, rhetorical questions, or unsupported claims. Do not use these words or phrases: can, may, just, that, very, really, literally, actually, certainly, probably, basically, could, maybe, delve, embark, enlightening, esteemed, shed light, craft, crafting, imagine, realm, game-changer, unlock, discover, skyrocket, abyss, not alone, in a world where, revolutionize, disruptive, utilize, utilizing, dive deep, tapestry, illuminate, unveil, pivotal, intricate, elucidate, hence, furthermore, however, harness, exciting, groundbreaking, cutting-edge, remarkable, it, remains to be seen, glimpse into, navigating, landscape, stark, testament, in summary, in conclusion, moreover, boost, skyrocketing, opened up, powerful, inquiries, ever-evolving.`;
+
+async function summarizeMeetingTranscript(client: OpenAI, transcript: string) {
+  let current: MeetingMinutes | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await client.responses.create({ model: "gpt-4.1", max_output_tokens: 7000, text: { format: { type: "json_object" } }, input: [{ role: "developer", content: minutesPrompt }, { role: "user", content: current ? `Revise this draft only where needed. Cross-check every item against the transcript. Remove unsupported details. Fix these editorial issues: ${minutesIssues(current).join(" ")}\nDRAFT:\n${JSON.stringify(current)}\nTRANSCRIPT:\n${transcript}` : `TRANSCRIPT:\n${transcript}` }] });
+    if (!response.output_text) throw new Error("OpenAI did not return meeting minutes.");
+    current = meetingMinutes.parse(JSON.parse(response.output_text));
+    if (!minutesIssues(current).length) return current;
+  }
+  throw new Error("Meeting minutes need editorial attention. Please retry the saved recording.");
+}
+
+export async function processMeetingUpload(churchId: string, documentId: string) {
+  const document = await prisma.documentRequest.findFirst({ where: { id: documentId, churchId, status: { in: ["queued", "processing"] } } });
+  if (!document) throw new Error("Meeting recording not found or already completed.");
+  const info = JSON.parse(document.inputJson || "{}");
+  if (!info.tempPath) throw new Error("Meeting audio upload is missing.");
+  await prisma.documentRequest.update({ where: { id: documentId }, data: { status: "processing", inputJson: JSON.stringify({ ...info, stage: "transcribing" }) } });
+  const storage = createSupabaseAdminClient().storage.from(env.SUPABASE_UPLOAD_BUCKET);
+  try {
+    const downloaded = await storage.download(info.tempPath);
+    if (downloaded.error || !downloaded.data) throw new Error("Temporary meeting audio was not found.");
+    const transcript = await transcribeMeetingAudio(getOpenAIClient(), info.fileName, info.fileType, new Uint8Array(await downloaded.data.arrayBuffer()));
+    const minutes = await summarizeMeetingTranscript(getOpenAIClient(), transcript);
+    await prisma.documentRequest.update({ where: { id: documentId }, data: { status: "generated", generatedBody: JSON.stringify(minutes), inputJson: JSON.stringify({ fileName: info.fileName, fileSize: info.fileSize, stage: "complete" }) } });
+    return minutes;
+  } catch (error) {
+    await prisma.documentRequest.update({ where: { id: documentId }, data: { status: "failed", inputJson: JSON.stringify({ fileName: info.fileName, fileSize: info.fileSize, stage: "failed", error: error instanceof Error ? error.message : "Meeting processing failed." }) } });
+    throw error;
+  } finally {
+    await storage.remove([info.tempPath]);
+  }
 }
 
 export async function createSermonNotes(churchId: string, input: AssistantSummaryInput, file: File, serviceDate = "") {

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { strFromU8, unzipSync } from "fflate";
+import * as tus from "tus-js-client";
 
 function sermonNotesServiceDate(fileName: string) {
   const baseName = fileName.replace(/\.(ppt|pptx)$/i, "");
@@ -36,9 +37,31 @@ export function QuickAiForm({ kind, accept, label, endpoint }: { kind: "audio" |
   const [download, setDownload] = useState("");
   const [pending, setPending] = useState(false);
   const [generatedOnce, setGeneratedOnce] = useState(false);
+  async function uploadMeeting(file: File, formData: FormData) {
+    const start = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: formData.get("title"), notesPrompt: formData.get("notesPrompt"), fileName: file.name, contentType: file.type, fileSize: file.size }) });
+    const started = await start.json();
+    if (!start.ok) throw new Error(started.error || "Could not prepare the audio upload.");
+    const info = started.data as { id: string; token: string; bucketName: string; path: string; resumableUploadUrl: string };
+    setMessage("Uploading meeting audio...");
+    try { await new Promise<void>((resolve, reject) => {
+      const upload = new tus.Upload(file, { endpoint: info.resumableUploadUrl, retryDelays: [0, 3000, 5000, 10000], headers: { authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "", "x-upsert": "false", "x-signature": info.token }, uploadDataDuringCreation: false, removeFingerprintOnSuccess: true, chunkSize: 6 * 1024 * 1024, metadata: { bucketName: info.bucketName, objectName: info.path, contentType: file.type || "audio/mpeg", cacheControl: "3600" }, onProgress(uploaded, total) { setMessage(`Uploading meeting audio... ${Math.round(uploaded / total * 100)}%`); }, onError: reject, onSuccess() { resolve(); } });
+      upload.findPreviousUploads().then(previous => { if (previous.length) upload.resumeFromPreviousUpload(previous[0]); upload.start(); }).catch(reject);
+    }); } catch (error) { await fetch(`${endpoint}/${info.id}`, { method: "DELETE" }).catch(() => undefined); throw error; }
+    setMessage("Transcribing audio and preparing minutes...");
+    const processed = await fetch(`${endpoint}/${info.id}/process`, { method: "POST" });
+    const result = await processed.json();
+    if (!processed.ok) throw new Error(result.error || "Meeting audio could not be processed.");
+    return result.data.downloadUrl as string;
+  }
   async function submit(formData: FormData) {
     setPending(true); setMessage(""); setDownload("");
     try {
+      if (kind === "audio") {
+        const file = formData.get("file");
+        if (!(file instanceof File)) throw new Error("Choose a meeting audio file.");
+        const url = await uploadMeeting(file, formData);
+        setDownload(url); setGeneratedOnce(true); setMessage("Meeting minutes ready."); return;
+      }
       if (kind === "sermon") {
         const file = formData.get("file");
         if (file instanceof File) {
@@ -65,7 +88,7 @@ export function QuickAiForm({ kind, accept, label, endpoint }: { kind: "audio" |
   }
   return <form onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }} className="stack">
     <input type="hidden" name="title" value={kind === "audio" ? "Council meeting minutes" : "Sermon notes"} />
-    <input type="hidden" name="notesPrompt" value={kind === "audio" ? "Return polished minutes ready to share with the council." : "Make this a concise one-page bulletin insert for people to keep and take home. Include every numbered point and the conclusion."} />
+    <input type="hidden" name="notesPrompt" value={kind === "audio" ? "Prepare factual meeting minutes with a summary, key points, decisions, action items, owners, due dates and follow-up items." : "Make this a concise one-page bulletin insert for people to keep and take home. Include every numbered point and the conclusion."} />
     <label>{label}<input className="input" type="file" name="file" accept={accept} required /></label>
     <button className="button" type="submit" disabled={pending}>{pending ? "Generating…" : generatedOnce ? kind === "sermon" ? "Generate new sermon notes" : "Generate new document" : "Generate"}</button>
     {message && <p role="status">{message}</p>}
