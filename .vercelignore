@@ -21,5 +21,6 @@ qa
 *.pptx
 *.docx
 !lib/documents/templates/bulletin-template.docx
+!lib/documents/templates/grace-hope-template.docx
 *.xlsx
 

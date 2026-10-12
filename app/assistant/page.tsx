@@ -6,6 +6,7 @@ import { SermonPreparationForm } from "./sermon-preparation-form";
 import { WorshipOutlineForm } from "./worship-outline-form";
 import { WorshipMusicForm } from "./worship-music-form";
 import { BulletinForm } from "./bulletin-form";
+import { GraceHopeForm } from "./grace-hope-form";
 
 export default function AssistantPage() {
   return (
@@ -26,6 +27,7 @@ export default function AssistantPage() {
         <article className="list-card"><div className="stack"><h2 className="card-title">Import weekly worship music</h2><WorshipMusicForm /></div></article>
         <article className="list-card"><div className="stack"><h2 className="card-title">Worship service outline</h2><WorshipOutlineForm /></div></article>
         <article className="list-card"><div className="stack"><h2 className="card-title">Weekly bulletin</h2><BulletinForm /></div></article>
+        <article className="list-card"><div className="stack"><h2 className="card-title">Grace and Hope Groups</h2><GraceHopeForm /></div></article>
       </section>
       </PreparationMonth>
 
