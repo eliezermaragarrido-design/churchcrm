@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { sermonImageContextRules, sermonVisualContext } from "./sermon-image-context";
 import { prisma } from "@/lib/db/prisma";
 import { env } from "@/lib/env";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -275,7 +276,7 @@ function parseJsonResponse(value: string) {
   return JSON.parse(cleaned);
 }
 
-type ImageReview = { pass: boolean; score: number; issues: string[]; improvementPrompt: string };
+type ImageReview = { pass: boolean; score: number; issues: string[]; improvementPrompt: string; eraConsistent?: boolean };
 
 async function reviewSermonImage(client: OpenAI, image: string, exactTitle: string, visualGoal: string): Promise<ImageReview> {
   const response = await client.responses.create({
@@ -283,10 +284,12 @@ async function reviewSermonImage(client: OpenAI, image: string, exactTitle: stri
     input: [{ role: "user", content: [
       { type: "input_text", text: `Act as a strict church presentation art director. Review this candidate image for a large 16:9 sanctuary screen. The image must contain no written words, letters, numbers, logos, watermark, or title. The title will be added later by PowerPoint. The visual must support: ${visualGoal}.
 
-Reject the image if it contains any visible text, modern clothing or settings in a biblical scene, theatrical surprise, exaggerated facial emotion, or if it has creepy or malformed hands, fingers, feet, legs, faces, eyes, teeth, duplicated anatomy, merged people, waxy skin, unnatural poses, distorted architecture, logos, or watermarks. Reject generic art that does not communicate the lesson. Prefer natural photography or a refined cinematic painting, strong composition, respectful biblical imagery, and enough contrast for projection.
+${sermonImageContextRules}
+Reject incorrect era in either direction: ancient robes on a present-day family in a modern church are a defect, even if the subject is the Lord's Prayer. Reject mixed-era clothing and buildings. Reject any visible text, theatrical surprise, exaggerated facial emotion, creepy or malformed hands, fingers, feet, legs, faces, eyes, teeth, duplicated anatomy, merged people, waxy skin, unnatural poses, distorted architecture, logos, or watermarks. Reject generic art that does not communicate the lesson.
 
 Reject collages, grids, split screens, multiple panels, muddy sepia grading, or images too dark to read on a sanctuary projector. Require one coherent scene, clear subjects, natural color and readable midtones.
-Return JSON only: {"pass":true,"score":0,"issues":[],"improvementPrompt":""}. Pass requires a score of at least 90 and no anatomy, face, eye, text, relevance, composition, or lighting defect.` },
+Inspect the clothing and setting separately. Set eraConsistent to false whenever their eras conflict or the depicted era contradicts the spoken context. Contemporary worshippers should wear ordinary shirts, trousers, dresses, sweaters or jackets, not biblical costumes. A high aesthetic score cannot override this check.
+Return JSON only: {"pass":true,"eraConsistent":true,"score":0,"issues":[],"improvementPrompt":""}. Pass requires eraConsistent true, a score of at least 90 and no anatomy, face, eye, text, relevance, composition, or lighting defect.` },
       { type: "input_image", image_url: `data:image/png;base64,${image}`, detail: "high" },
     ] }],
   });
@@ -295,7 +298,9 @@ Return JSON only: {"pass":true,"score":0,"issues":[],"improvementPrompt":""}. Pa
     const parsed = parseJsonResponse(response.output_text);
     const score = Number(parsed.score) || 0;
     const issues = Array.isArray(parsed.issues) ? parsed.issues.filter((issue: unknown) => typeof issue === "string" && issue.trim()) : ["Invalid review issues"];
-    return { pass: parsed.pass === true && score >= 90 && score <= 100 && issues.length === 0, score, issues, improvementPrompt: String(parsed.improvementPrompt || "") };
+    const eraConsistent = parsed.eraConsistent === true;
+    if (!eraConsistent) issues.push("The clothing and setting must match the spoken context and the same era. Use an era-appropriate setting without people if necessary.");
+    return { pass: parsed.pass === true && eraConsistent && score >= 90 && score <= 100 && issues.length === 0, eraConsistent, score, issues, improvementPrompt: String(parsed.improvementPrompt || "") };
   } catch {
     return { pass: false, score: 0, issues: ["Invalid visual review"], improvementPrompt: "Improve anatomy, typography, relevance, and realism." };
   }
@@ -303,15 +308,25 @@ Return JSON only: {"pass":true,"score":0,"issues":[],"improvementPrompt":""}. Pa
 
 type ImageCheckpoint = { attempt?: number; image?: string; firstReview?: ImageReview; secondReview?: ImageReview; best?: { image: string; review: ImageReview }; improvement?: string };
 export async function generateReviewedSermonImage(client: OpenAI, prompt: string, exactTitle: string, progress: ImageCheckpoint = {}, save: () => Promise<void> = async () => {}) {
+  // Previously saved reviews did not explicitly verify the clothing/setting era.
+  if (progress.firstReview?.eraConsistent === undefined) delete progress.firstReview;
+  if (progress.secondReview?.eraConsistent === undefined) delete progress.secondReview;
+  if ((progress.attempt || 1) > 3) {
+    progress.attempt = 3;
+    delete progress.image;
+    delete progress.firstReview;
+    delete progress.secondReview;
+  }
   let best: { image: string; review: ImageReview } | null = progress.best || null;
   let improvement = progress.improvement || "";
+  prompt = `${sermonImageContextRules}\n${prompt}`;
   for (let attempt = progress.attempt || 1; attempt <= 3; attempt += 1) {
     try {
       if (!progress.image) {
       const response = await client.images.generate({ model: process.env.OPENAI_SERMON_IMAGE_MODEL || "gpt-image-2.5-sunburst", size: "1536x864", quality: "xhigh", prompt: `${prompt}${attempt >= 3 ? "\nSimplify the composition to a single meaningful object or setting, with no people, faces, hands or feet. Preserve the central meaning. Use a naturally lit photographic still life, no montage." : ""}
 Use ONE coherent full-frame scene with a single focal point. Never use a collage, split screen, panels, montage, or grid, even if the concept lists several activities. Use luminous natural color, readable midtones, clear subjects, and balanced daylight. Avoid muddy brown/sepia grading, underexposure, and heavy darkness. Keep essential subjects above the lower title area. Translate abstract applications into one specific moment, not a collection of scenes.
 For contemporary introductions and contemporary applications, use a believable present-day setting when the concept calls for it. Never turn a modern illustration into a biblical scene. Prefer a well-composed still life or a restrained scene with one or two people over a crowd.
-Create a polished, cinematic, reverent Christian visual for a widescreen 16:9 church slide. Do not put any text, letters, numbers, title, logo, or watermark in the image. PowerPoint will add the exact title separately. Use natural proportions and believable anatomy. For biblical scenes, use historically appropriate first-century Judea clothing, architecture, lighting, and objects. Do not show modern clothing, modern furniture, modern buildings, modern hairstyles, or contemporary people in a biblical setting. Keep faces calm and natural. Avoid theatrical surprise, exaggerated joy, fear, shock, direct eye contact with the viewer, close-up hands, feet, legs, faces, and eyes when they are not needed. Prefer a symbolic scene, landscape, still life, architecture, or a medium-wide scene with people shown from the side or at a distance. No extra fingers, distorted hands, malformed feet or legs, waxy faces, asymmetrical eyes, unnatural teeth, duplicated people, merged bodies, clutter, logos, watermarks, or stray text. Make the image look professionally photographed or painted, not obviously generated by AI.${improvement ? `\nThe prior candidate was rejected. Correct these defects: ${improvement}` : ""}` } as any);
+Create a polished, cinematic, reverent Christian visual for a widescreen 16:9 church slide. Do not put any text, letters, numbers, title, logo, or watermark in the image. PowerPoint will add the exact title separately. Use natural proportions and believable anatomy. For explicitly historical biblical events only, match clothing, architecture and objects to the specific event's era and location. Do not show modern clothing, modern furniture, modern buildings, modern hairstyles, or contemporary people in a biblical setting. Keep faces calm and natural. Avoid theatrical surprise, exaggerated joy, fear, shock, direct eye contact with the viewer, close-up hands, feet, legs, faces, and eyes when they are not needed. Prefer a symbolic scene, landscape, still life, architecture, or a medium-wide scene with people shown from the side or at a distance. No extra fingers, distorted hands, malformed feet or legs, waxy faces, asymmetrical eyes, unnatural teeth, duplicated people, merged bodies, clutter, logos, watermarks, or stray text. Make the image look professionally photographed or painted, not obviously generated by AI.${improvement ? `\nThe prior candidate was rejected. Correct these defects: ${improvement}` : ""}` } as any);
       const image = response.data?.[0]?.b64_json;
       if (!image) continue;
       progress.image = image; progress.attempt = attempt; await save();
@@ -334,7 +349,7 @@ Create a polished, cinematic, reverent Christian visual for a widescreen 16:9 ch
       if (process.env.VERCEL) throw error;
       const failure = error as { status?: number; code?: string };
       if (["credit_balance_exhausted", "insufficient_quota"].includes(failure.code || "")) {
-        if (best) return { ...best, attempts: attempt };
+        if (best?.review.pass && best.review.eraConsistent === true) return { ...best, attempts: attempt };
         // Preserve the provider's code so the route can explain a billing mismatch.
         throw error;
       }
@@ -345,13 +360,15 @@ Create a polished, cinematic, reverent Christian visual for a widescreen 16:9 ch
       if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 2000));
     }
   }
-  // Aesthetic scores guide selection; they must not trap the pastor in a retry loop.
-  // Preserve the real review result rather than relabeling it as an approval.
-  if (best) return { ...best, attempts: 3 };
+  // Never put a rejected candidate into the final deck. Automatic continuation
+  // retries the simplified third composition using the saved corrective feedback.
+  if (best?.review.pass && best.review.eraConsistent === true) return { ...best, attempts: 3 };
+  if (best) throw new Error("Illustration review requires another simplified composition. Saved sermon progress is retained.");
   throw new Error("OpenAI returned no image. Saved sermon progress is retained.");
 }
 
 const sermonDeckPrompt = `Prepare structured content for a church sermon PowerPoint. Return valid JSON only.
+IMAGE CONCEPT RULES: ${sermonImageContextRules}
 The scriptureReading array MUST cover EVERY verse of the pastor's complete Second Scripture Lesson, in order. Never substitute a selected verse or supporting scripture for this full main reading. All Bible quotations use NIV only. The application verifies and replaces Bible quotations with sourced NIV text after editorial review.
 
 Use only the supplied COMPLETE SERMON SOURCE. Select its strongest explanation and most relevant application for each lesson. Keep one clear interpretive insight grounded in the passage and one concrete shared response. Remove repetition and secondary examples. Favor concise, substantive pastoral language over lengthy exposition. Do not invent a new outline, new theology, new Bible text, or a different train of thought. Use clear English, active voice, natural pastoral warmth, and "we," "us," and "our" in explanations and applications. Do not use em dashes, semicolons, markdown, asterisks, hashtags, clichés, fake quotations, or invented facts.
@@ -486,21 +503,33 @@ export async function createSermonPreparation(churchId: string, input: SermonPre
   deck.assets.introductionImages ||= [];
   deck.imageReviews ||= {};
   const tasks = [
-    { key: "series", title: input.series, prompt: deck.seriesImagePrompt || input.series, image: deck.assets.seriesImage, set: (image: string) => { deck.assets.seriesImage = image; } },
-    { key: "sermon", title: input.sermonTitle, prompt: deck.sermonImagePrompt || input.sermonTitle, image: deck.assets.sermonImage, set: (image: string) => { deck.assets.sermonImage = image; } },
-    ...deck.introductions.map((intro: any, index: number) => ({ key: "introduction-" + index, title: "Introduction " + (index + 1), prompt: intro.imagePrompt || intro.slides.join(" "), image: deck.assets.introductionImages[index], set: (image: string) => { deck.assets.introductionImages[index] = image; } })),
-    { key: "humor", title: "Humor introduction", prompt: deck.humor.imagePrompt || "Illustrate the joke setup without revealing its punchline: " + deck.humor.setup, image: deck.assets.humorImage, set: (image: string) => { deck.assets.humorImage = image; } },
-    ...deck.points.map((point: any, index: number) => ({ key: "point-" + index, title: point.title, prompt: point.imagePrompt || point.title, image: deck.assets.pointImages[index], set: (image: string) => { deck.assets.pointImages[index] = image; } })),
+    { key: "series", title: input.series, prompt: sermonVisualContext(deck.seriesImagePrompt || input.series, input.series), image: deck.assets.seriesImage, set: (image: string) => { deck.assets.seriesImage = image; } },
+    { key: "sermon", title: input.sermonTitle, prompt: sermonVisualContext(deck.sermonImagePrompt || input.sermonTitle, input.sermonTitle + '. ' + input.sermonRemarks), image: deck.assets.sermonImage, set: (image: string) => { deck.assets.sermonImage = image; } },
+    ...deck.introductions.map((intro: any, index: number) => ({ key: "introduction-" + index, title: "Introduction " + (index + 1), prompt: sermonVisualContext(intro.imagePrompt || "", intro.slides.join(" ")), image: deck.assets.introductionImages[index], set: (image: string) => { deck.assets.introductionImages[index] = image; } })),
+    { key: "humor", title: "Humor introduction", prompt: sermonVisualContext(deck.humor.imagePrompt || "Illustrate the setup.", deck.humor.setup), image: deck.assets.humorImage, set: (image: string) => { deck.assets.humorImage = image; } },
+    ...deck.points.map((point: any, index: number) => ({ key: "point-" + index, title: point.title, prompt: sermonVisualContext(point.imagePrompt || point.title, [point.title, ...(point.explanationSlides || []), ...(point.applicationSlides || [])].join(" ")), image: deck.assets.pointImages[index], set: (image: string) => { deck.assets.pointImages[index] = image; } })),
   ];
-  const missing = tasks.find(task => !task.image);
+  const missing = tasks.find(task => !task.image || deck.imageReviews[task.key]?.review?.eraConsistent !== true || !deck.imageReviews[task.key]?.review?.pass);
   if (missing) {
-    const completed = tasks.filter(task => task.image).length;
+    const completed = tasks.filter(task => task.image && deck.imageReviews[task.key]?.review?.pass && deck.imageReviews[task.key]?.review?.eraConsistent === true).length;
     await work.save({ sermonFoundation, deck }, "Reviewing illustration " + (completed + 1) + " of " + tasks.length + ": " + missing.title);
     let result: Awaited<ReturnType<typeof generateReviewedSermonImage>> | undefined;
+    // A resumed deck may now revisit an earlier image under the new rules.
+    // Never apply another slide's saved candidate or reviews to this slide.
+    if (deck.imageCheckpointKey !== missing.key) {
+      deck.imageCheckpoint = {};
+      deck.imageCheckpointKey = missing.key;
+    }
     deck.imageCheckpoint ||= {};
+    // Recheck saved illustrations under the current rule without paying to
+    // regenerate them unless the new visual review rejects them.
+    if (missing.image && !deck.imageCheckpoint.image && !deck.imageCheckpoint.attempt) {
+      deck.imageCheckpoint.image = missing.image;
+    }
     result ||= await generateReviewedSermonImage(client, missing.prompt, missing.title, deck.imageCheckpoint,
       () => work.save({ sermonFoundation, deck }, "Illustration progress saved. Continuing automatically."));
     delete deck.imageCheckpoint;
+    delete deck.imageCheckpointKey;
     missing.set(result.image);
     deck.imageReviews[missing.key] = { review: result.review, attempts: result.attempts };
     await work.save({ sermonFoundation, deck }, "Saved " + (completed + 1) + " of " + tasks.length + " illustrations.");
