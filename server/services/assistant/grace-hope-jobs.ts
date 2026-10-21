@@ -4,7 +4,7 @@ import { sundaysInMonth } from "@/lib/current-sermon-month";
 import { completedWorshipSource, retryWorship } from "./worship-jobs";
 import { advanceGroup } from "./grace-hope-content";
 import { createGroupDocx } from "@/lib/documents/grace-hope-docx";
-import type { GroupAudience, GroupSource, GroupState } from "@/lib/documents/grace-hope-types";
+import { GROUP_DISCUSSION_VERSION, type GroupAudience, type GroupSource, type GroupState } from "@/lib/documents/grace-hope-types";
 import { missingSermonFields, sermonInput } from "./sermon-jobs";
 
 export async function groupSources(churchId: string, month: string) {
@@ -33,7 +33,7 @@ export async function latestGroup(churchId: string, month: string, audience: Gro
 export async function startGroup(churchId: string, month: string, audience: GroupAudience, regenerate = false) {
   const { sources, missing } = await groupSources(churchId, month);
   if (missing.length) throw new Error("Complete the sermon calendar information for " + missing.join(", ") + " before preparing this month’s guide.");
-  const signature = createHash("sha256").update(JSON.stringify({ churchId, month, audience, sources, version: 1 })).digest("hex");
+  const signature = createHash("sha256").update(JSON.stringify({ churchId, month, audience, sources, version: GROUP_DISCUSSION_VERSION })).digest("hex");
   const latest = await latestGroup(churchId, month, audience);
   if (latest && (latest.status === "running" || latest.status === "queued" || (!regenerate && infoOf(latest).signature === signature))) return latest;
   const records = await prisma.documentRequest.findMany({ where: { churchId, id: { startsWith: "gracehope_" } }, select: { inputJson: true }, orderBy: { createdAt: "desc" }, take: 120 });

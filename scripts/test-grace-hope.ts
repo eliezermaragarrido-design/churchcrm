@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { unzipSync, strFromU8 } from "fflate";
-import { groupIssues, type GroupState, type GroupContent } from "../lib/documents/grace-hope-types";
+import { GROUP_DISCUSSION_VERSION, groupContent, groupIssues, groupQuestionIssue, stripGroupReflectionCues, type GroupState, type GroupContent } from "../lib/documents/grace-hope-types";
 import { advanceGroup } from "../server/services/assistant/grace-hope-content";
 import { createGroupDocx } from "../lib/documents/grace-hope-docx";
 
@@ -11,7 +11,7 @@ async function main() {
     activity: { title: "A shared decision", method: "paired choice between two concrete responses", minutes: 5, instructions: ["Work with a partner. Read these two choices: spend ten minutes listening to a tired neighbor, or finish a household task before visiting.", "Each person chooses a response and explains the reason. Describe how urgency affects your choice. Passing is welcome.", "Share one consideration with the group. Listen for different responsibilities and needs."], connection: "Daily decisions reveal our priorities. Today you will discuss how following Jesus shapes those decisions." },
     readingReferences: ["John 13:14-15"], introduction: "Jesus served His disciples during their final meal together. His example helps you consider your own responsibilities. The monthly messages connect faith with daily choices, relationships and service.",
     truths: [1, 2, 3].map((n) => ({ title: ["Receive care with humility", "Make time for others", "Practice service this week"][n-1], sermonDates: [`2026-11-${String(n*7+1).padStart(2, "0")}`], references: ["John 13:14-15"], explanation: "Jesus washed His disciples’ feet during their final meal together. He performed a task associated with service, then instructed His followers to follow His example. His actions explain the meaning of humble care. A position of responsibility gives you opportunities to serve others. Paying attention to someone’s needs helps you choose useful actions. At home, a tired relative might need your patient attention before another task. In a group, a quieter person needs room to speak without interruption. These examples concern ordinary responsibilities. Begin by listening, then choose a response suited to the person and situation. Service grows through deliberate choices and steady practice.", application: "Choose one person and one helpful action for this week. Set aside time and follow through.", questions: ["Which responsibility needs more patience from you this week?"] })),
-    finalQuestion: "Which action will you practice this week, and who will receive your care?",
+    finalQuestion: "What helps you make time to care for someone during a busy week?",
     closingLeader: "Thank you for sharing. Choose one response from today’s conversation. Practice your response during the week and encourage someone from the group.",
     closingPrayer: "Father, thank You for our time together. Give us patience, humility and courage to serve. Help us follow Jesus in our homes and daily responsibilities. In Jesus’ name, Amen.",
   };
@@ -41,6 +41,44 @@ async function main() {
   assert.equal(repair.phase, "complete");
   assert.equal(repair.content!.openingPrayer, content.openingPrayer);
   assert.deepEqual(repair.scriptures, state.scriptures);
+  const old = structuredClone(state);
+  delete old.discussionVersion;
+  old.content!.truths[0].application += "\nSTOP – THINK – MEDITATE: 30 to 60 seconds.\nThen share";
+  old.content!.truths[0].questions = ["STOP – THINK – MEDITATE: 30 to 60 seconds.\nThen share: " + content.truths[0].questions[0], "What helps you listen?"];
+  old.content!.finalQuestion = "Then share: " + content.finalQuestion;
+  for (const audience of ["men", "women", "mixed"] as const) {
+    old.audience = audience;
+    const legacyXml = strFromU8(unzipSync(createGroupDocx(old))["word/document.xml"]);
+    assert.equal((legacyXml.match(/STOP THINK MEDITATE/g) || []).length, content.truths.length + 1);
+    assert.equal((legacyXml.match(/Then share/g) || []).length, content.truths.length + 1);
+    assert.equal((legacyXml.replace(/<[^>]*>/g, "").match(/\?/g) || []).length, content.truths.length + 1);
+    assert.ok(!legacyXml.includes("STOP –"));
+  }
+  assert.equal(stripGroupReflectionCues("STOP-THINK-MEDITATE: 30-60 seconds. Then share: What helps you listen?"), "What helps you listen?");
+  assert.equal(stripGroupReflectionCues("STOP THINK MEDITATE: 30 to 60 seconds\nThen share"), "");
+  const screenshot = structuredClone(content);
+  screenshot.truths[0].questions = ["STOP – THINK – MEDITATE: 30 to 60 seconds.", "Then share: What helps you feel connected to others at church?"];
+  assert.deepEqual(groupContent.parse(screenshot).truths[0].questions, ["What helps you feel connected to others at church?"]);
+  assert.ok(groupQuestionIssue("What helps you listen, and how will you practice this week?"));
+  assert.ok(groupQuestionIssue("Do you enjoy worship?"));
+  assert.ok(groupQuestionIssue("What helps you listen? Why?"));
+  const simplified = structuredClone(old);
+  simplified.phase = "review";
+  await advanceGroup(simplified, async prompt => {
+    assert.ok(prompt.startsWith("TARGETED COPY EDIT"));
+    assert.ok(prompt.includes("exactly ONE question"));
+    return JSON.stringify({ replacements: Object.fromEntries([
+      ...content.truths.map((t, i) => [`truths.${i}.questions.0`, t.questions[0]]), ["finalQuestion", content.finalQuestion],
+    ]) });
+  }, resolve);
+  assert.equal(simplified.phase, "complete");
+  assert.equal(simplified.discussionVersion, GROUP_DISCUSSION_VERSION);
+  assert.ok(simplified.content!.truths.every(t => t.questions.length === 1));
+  assert.deepEqual(simplified.scriptures, state.scriptures);
+  const invalid = structuredClone(simplified);
+  invalid.content!.truths[0].questions.push("What helps you listen?");
+  assert.throws(() => createGroupDocx(invalid), /editorial/);
+  assert.deepEqual(groupContent.parse(simplified.content), simplified.content);
   const buffer = createGroupDocx(state);
   const xml = strFromU8(unzipSync(buffer)["word/document.xml"]);
   assert.ok(xml.indexOf("Opening Prayer") < xml.indexOf("Opening Conversation"));

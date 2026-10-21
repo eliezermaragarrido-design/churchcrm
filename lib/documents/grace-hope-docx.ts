@@ -1,13 +1,15 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
-import { groupContent, groupIssues, type GroupState } from "./grace-hope-types";
+import { GROUP_DISCUSSION_VERSION, groupContent, groupIssues, type GroupState } from "./grace-hope-types";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
 export function createGroupDocx(state: GroupState) {
   if (state.phase !== "complete" || state.reviews.length < 2 || !state.scriptures) throw new Error("The monthly guide is still being reviewed.");
   const c = groupContent.parse(state.content);
-  if (groupIssues(c, state.sources, state.history).length) throw new Error("The monthly guide has unresolved editorial checks.");
+  // Existing completed guides remain downloadable. New guides must also pass
+  // the simple-question checks; both get the same duplicate-free rendering.
+  if (groupIssues(c, state.sources, state.history, state.discussionVersion === GROUP_DISCUSSION_VERSION).length) throw new Error("The monthly guide has unresolved editorial checks.");
   for (const ref of [...c.readingReferences, ...c.truths.flatMap(t => t.references)]) {
     if (!state.scriptures[ref]?.length) throw new Error("A verified passage is missing from the monthly guide.");
   }
@@ -31,7 +33,7 @@ export function createGroupDocx(state: GroupState) {
   body.push(p("Leader", true), p(c.introduction), p(`${c.truths.length} Truths for Daily Life`, true));
   const reflection = (questions: string[]) => {
     body.push(p("STOP THINK MEDITATE: 30 to 60 seconds", true), p("Then share", true));
-    questions.forEach(q => body.push(p(q, true)));
+    body.push(p(questions[0], true));
     body.push(p("________________________________________________________________________________"), p("________________________________________________________________________________"));
   };
   c.truths.forEach((truth, i) => {
